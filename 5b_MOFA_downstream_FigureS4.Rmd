@@ -1,0 +1,507 @@
+---
+title: "MOFA+ scMultiome - CN cocaine - Downstream"
+author: "Lea & Eric Zillich"
+output: html_document
+---
+
+```{r setup, warning=FALSE, message=FALSE, results='hide'}
+knitr::opts_chunk$set(
+	echo = TRUE,
+	message = TRUE,
+	warning = FALSE
+)
+# Most of the analysis steps are based on the following vignette: https://raw.githack.com/bioFAM/MOFA2_tutorials/master/R_tutorials/10x_scRNA_scATAC.html
+
+#load packages
+library(data.table)
+library(ggplot2)
+library(Seurat)
+library(Signac)
+
+# for GSEA analysis
+library(msigdbr)
+
+# For motif enrichment analysis
+library(JASPAR2020)
+library(TFBSTools)
+library(BSgenome.Hsapiens.UCSC.hg38)
+
+# MOFA
+library(MOFA2)
+reticulate::use_python("/path/to/anaconda3/bin/python", required=TRUE)
+```
+
+```{r importApache207}
+MOFAobject <- readRDS("/path/to/data/MOFA/RNA_ATAC_trained_modelpeaks_separated.rds")
+mofa <- MOFAobject
+
+seurat <- readRDS(file = "/path/to/data/5_MOFA.rds")
+```
+
+## Variance decomposition
+
+```{r vardecomp,warning=FALSE, message=FALSE, results='hide'}
+p1 <- plot_variance_explained(mofa, max_r2 = 4)
+ggsave("/path/to/figures/S4a_var_decomp.pdf",p1,width=5,height=4)
+```
+
+# Plot total variance explained
+
+```{r varexp,warning=FALSE, message=FALSE, results='hide'}
+p2 <- plot_variance_explained(mofa, plot_total = TRUE)[[2]]
+ggsave("/path/to/figures/S4a_var_total.pdf",p2,width=5,height=4)
+```
+
+### Correlate factors with covariates
+
+```{r factorcovcorr, warning=FALSE, message=FALSE, results='hide'}
+p3 <-correlate_factors_with_covariates(mofa, transpose = T,
+  covariates = c("nFeature_RNA","nFeature_ATAC","CUD","PMI","sex","celltypes")
+  )
+
+ggsave("/path/to/figures/FigureS4a_corr_hm.pdf",p3,width=6,height=3)
+
+```
+
+## UMAP with MOFA factors 
+```{r umap,warning=FALSE, message=FALSE, results='hide'}
+mofa <- run_umap(mofa)
+
+mofa <- run_umap(mofa, 
+  n_neighbors = 20,  
+  min_dist = 0.30
+)
+
+umap1 <- plot_dimred(mofa, 
+  method = "UMAP", 
+  color_by = "celltypes", 
+  label = TRUE,
+  dot_size = 0.5, 
+  legend = F,
+  rasterize = T
+)+ggtitle("UMAP by MOFA factors")
+
+umap2 <- plot_dimred(mofa, 
+    method = "UMAP", 
+  color_by = "Factor6", 
+  label = TRUE, 
+  dot_size = 0.5, 
+  legend = T,
+  rasterize = T
+  )+ggtitle("UMAP Factor6")
+
+umap3 <- plot_dimred(mofa, 
+    method = "UMAP", 
+  color_by = "Factor7", 
+  label = TRUE, 
+  dot_size = 0.5, 
+  legend = T,
+  rasterize = T
+  )+ggtitle("UMAP Factor7")
+
+
+umap4<-plot_dimred(mofa, 
+    method = "UMAP", 
+  color_by = "Factor8", 
+  dot_size = 0.5, 
+  legend = T,
+  rasterize = T
+  )+ggtitle("UMAP Factor8")
+
+library(ggpubr)
+umaps <- ggarrange(umap1,umap2,umap3,umap4,nrow=1,ncol=4)
+ggsave("/path/to/figures/FigureS4c_MOFA_UMAPs.pdf",width=24,height=6)
+```
+
+## Gene set enrichment analysis prepare
+
+```{r GSEA1, warning=FALSE, message=FALSE, results='hide'}
+matrix.please<-function(x) {
+  m<-as.matrix(x[,-1])
+  rownames(m)<-x[[1]]
+  m
+}
+
+msgidb.matrix <- msigdbr(
+  species = "Homo sapiens",
+  category = "C5", 
+  subcategory = "BP"
+  ) %>% as.data.table %>% .[,id:=1] %>%
+  dcast(gs_name~gene_symbol, value.var="id", fill=0) %>% 
+  matrix.please
+
+# Convert matrix to binary 
+msgidb.matrix[msgidb.matrix > 1] <- 1
+```
+
+### Run GSEA
+
+```{r GSEA2, warning=FALSE, message=FALSE, results='hide'}
+# GSEA on positive weights
+gsea.positive <- run_enrichment(mofa, 
+  feature.sets = msgidb.matrix, 
+  view = "RNA",
+  sign = "positive"
+)
+
+# GSEA on negative weights
+gsea.negative <- run_enrichment(mofa, 
+  feature.sets = msgidb.matrix, 
+  view = "RNA",
+  sign = "negative"
+)
+```
+
+## Motif enrichment 
+
+# ATAC distal 
+```{r motif1, warning=FALSE, message=FALSE, results='hide'}
+# small tweak to match the peak names
+features_names(mofa)[["ATAC_distal"]] <- features_names(mofa)[["ATAC_distal"]] %>% stringr::str_replace_all(":","-")
+```
+
+```{r motif2, warning=FALSE, message=FALSE, results='hide'}
+#import position specific weight matrices
+
+pfm <- getMatrixSet(JASPAR2020,
+  opts = list(species = "Homo sapiens"))
+
+# distal peaks
+peaks.granges_distal <-fread("/path/to/data/granges_distal.txt")
+peaks.granges_distal_ranges <- makeGRangesFromDataFrame(peaks.granges_distal ,keep.extra.columns = TRUE, ignore.strand = TRUE)
+
+# Scan motifs throughout the DNA sequence of each peak and create a binary matrix of motif-peak presence.
+motif.matrix_distal <- CreateMotifMatrix(
+    features = peaks.granges_distal_ranges,
+    pwm = pfm,
+    genome = 'hg38',
+    use.counts = FALSE
+  ) %>% as.matrix
+
+
+motif.matrix_distal <- t(as.matrix(motif.matrix_distal))
+
+# Run GSEA enrichment analysis using the motif-peak matrix, (+) weights
+motif.enrichment.positive_distal <- run_enrichment(mofa,
+  view = "ATAC_distal", 
+  feature.sets = motif.matrix_distal,
+  sign = "positive"
+)
+
+# Run GSEA enrichment analysis using the motif-peak matrix, (-) weights
+motif.enrichment.negative_distal <- run_enrichment(mofa,
+  view = "ATAC_distal", 
+  feature.sets = motif.matrix_distal,
+  sign = "negative"
+)
+
+# promoter peaks
+peaks.granges_promoter <-fread("/path/to/data/granges_promoter.txt")
+peaks.granges_promoter_ranges <- makeGRangesFromDataFrame(peaks.granges_promoter ,keep.extra.columns = TRUE, ignore.strand = TRUE)
+
+# Scan motifs throughout the DNA sequence of each peak and create a binary matrix of motif-peak presence.
+motif.matrix_promoter <- CreateMotifMatrix(
+    features = peaks.granges_promoter_ranges,
+    pwm = pfm,
+    genome = 'hg38',
+    use.counts = FALSE
+  ) %>% as.matrix
+
+
+motif.matrix_promoter <- t(as.matrix(motif.matrix_promoter))
+
+# Run GSEA enrichment analysis using the motif-peak matrix, (+) weights
+motif.enrichment.positive_promoter <- run_enrichment(mofa,
+  view = "ATAC_promoter", 
+  feature.sets = motif.matrix_promoter,
+  sign = "positive"
+)
+
+# Run GSEA enrichment analysis using the motif-peak matrix, (-) weights
+motif.enrichment.negative_promoter <- run_enrichment(mofa,
+  view = "ATAC_promoter", 
+  feature.sets = motif.matrix_promoter,
+  sign = "negative"
+)
+
+seurat <- AddMotifs(
+    object = seurat,
+    genome = BSgenome.Hsapiens.UCSC.hg38,
+    pfm = pfm,
+    assay="ATAC_distal"
+ )
+
+seurat <- AddMotifs(
+    object = seurat,
+    genome = BSgenome.Hsapiens.UCSC.hg38,
+    pfm = pfm,
+    assay="ATAC_promoter"
+ )
+
+seurat <- AddMotifs(
+    object = seurat,
+    genome = BSgenome.Hsapiens.UCSC.hg38,
+    pfm = pfm,
+    assay="ATAC"
+ )
+```
+
+### Characterisation of Factors
+
+```{r fac6, warning=FALSE, message=FALSE, results='hide'}
+p4 <- plot_factor(mofa, factors=6, group_by = "celltypes",color_by="CUD",add_dots = F,add_violin  = T,dodge = T,violin_alpha  = 1,add_boxplot = T) +theme(strip.text.x = element_blank())+
+  theme(
+    axis.text.x = element_text(color="black", angle=40, vjust=1, hjust=1)
+  )
+
+ggsave("/path/to/figures/FigureS4b_Vlnplot_F6.pdf",p4,width=6,height=6)
+
+p4_1 <- plot_factor(mofa, factors=7, group_by = "celltypes",color_by="CUD",add_dots = F,add_violin  = T,dodge = T,violin_alpha  = 1,add_boxplot = T) +theme(strip.text.x = element_blank())+
+  theme(
+    axis.text.x = element_text(color="black", angle=40, vjust=1, hjust=1)
+  )
+
+ggsave("/path/to/figures/FigureS4b_Vlnplot_F7.pdf",p4_1,width=6,height=6)
+
+p4_2 <- plot_factor(mofa, factors=8, group_by = "celltypes",color_by="CUD",add_dots = F,add_violin  = T,dodge = T,violin_alpha  = 1,add_boxplot = T) +theme(strip.text.x = element_blank())+
+  theme(
+    axis.text.x = element_text(color="black", angle=40, vjust=1, hjust=1)
+  )
+
+ggsave("/path/to/figures/FigureS4b_Vlnplot_F8.pdf",p4_2,width=6,height=6)
+```
+
+# Associated RNA weights - not in manuscript
+```{r weightsfac6, warning=FALSE, message=FALSE, results='hide'}
+p5 <- plot_weights(mofa, 
+  view = "RNA", 
+  factors = 6, 
+  nfeatures = 20, 
+  text_size = 2
+)
+
+p5_1 <- plot_weights(mofa, 
+  view = "RNA", 
+  factors = 7, 
+  nfeatures = 20, 
+  text_size = 2
+)
+
+p5_2 <- plot_weights(mofa, 
+  view = "RNA", 
+  factors = 8, 
+  nfeatures = 20, 
+  text_size = 2
+)
+```
+
+
+### Visualise GSEA
+
+```{r enr6pos,warning=FALSE, message=FALSE, results='hide'}
+
+library(ggpubr)
+pos_ES <- as.data.frame(gsea.positive$set.statistics)
+pos_padj <- as.data.frame(gsea.positive$pval.adj)
+neg_ES <- as.data.frame(gsea.negative$set.statistics)
+neg_padj <- as.data.frame(gsea.negative$pval.adj)
+
+# create dataframe for plotting for factors 6-8 
+# F6
+f6_GSEA <- data.frame(TERM=rep("",times=20),ES=rep(0,times=20), p_adj=rep(0,times=20),dir=c(rep("up",times=10),rep("down",times=10)))
+
+f6_GSEA$p_adj[1:10] <- pos_padj$Factor6[order(pos_padj$Factor6,decreasing = F)]
+f6_GSEA$TERM[1:10] <- rownames(pos_padj[order(pos_padj$Factor6,decreasing = F),])[1:10]
+f6_GSEA$p_adj[11:20] <- neg_padj$Factor6[order(neg_padj$Factor6,decreasing = F)]
+f6_GSEA$TERM[11:20] <- rownames(neg_padj[order(neg_padj$Factor6,decreasing = F),])[1:10]
+
+pos_terms <- pos_ES[rownames(pos_ES) %in% rownames(pos_padj[order(pos_padj$Factor6,decreasing = F),])[1:10],]
+pos_terms <- pos_terms[match(rownames(pos_padj[order(pos_padj$Factor6,decreasing = F),])[1:10],row.names(pos_terms)),]
+neg_terms <- neg_ES[rownames(neg_ES) %in% rownames(neg_padj[order(neg_padj$Factor6,decreasing = F),])[1:10],]
+neg_terms <- neg_terms[match(rownames(neg_padj[order(neg_padj$Factor6,decreasing = F),])[1:10],row.names(neg_terms)),]
+
+f6_GSEA$ES[1:10] <- pos_terms$Factor6
+f6_GSEA$ES[11:20] <- -(neg_terms$Factor6)
+
+# rename pathways and round pvals for plotting
+f6_GSEA$TERM <-  gsub("GOBP_","",f6_GSEA$TERM)
+f6_GSEA$TERM <-  gsub("_"," ",f6_GSEA$TERM)
+f6_GSEA$TERM <-  tolower(f6_GSEA$TERM)
+f6_GSEA$p_adj <- signif(f6_GSEA$p_adj, digits=3)
+
+
+f6_gsea_plot <- ggbarplot(f6_GSEA, x = "TERM", y = "ES",
+          fill = "dir",               # change fill color by cyl
+          color = "black",            # Set bar border colors to white
+          sort.val = "desc",          # Sort the value in dscending order
+          sort.by.groups = FALSE,     # Don't sort inside each group
+          #x.text.angle = 90           # Rotate vertically x axis texts
+          )+ylim(-10,10)+NoLegend()+xlab(NULL)+ylab("enrichment score")+geom_text(aes(y=2*abs(ES)/ES,label = p_adj), vjust = 0.5,hjust=0.5,size=2.5)+  theme(axis.text.x = element_text(size = 14))+coord_flip()
+
+ggsave("/path/to/figures/FigureS4d_GSEA_factor6.pdf",f6_gsea_plot,width=8,height=8)
+
+# factor7
+
+f7_GSEA <- data.frame(TERM=rep("",times=20),ES=rep(0,times=20), p_adj=rep(0,times=20),dir=c(rep("up",times=10),rep("down",times=10)))
+
+f7_GSEA$p_adj[1:10] <- pos_padj$Factor7[order(pos_padj$Factor7,decreasing = F)]
+f7_GSEA$TERM[1:10] <- rownames(pos_padj[order(pos_padj$Factor7,decreasing = F),])[1:10]
+f7_GSEA$p_adj[11:20] <- neg_padj$Factor7[order(neg_padj$Factor7,decreasing = F)]
+f7_GSEA$TERM[11:20] <- rownames(neg_padj[order(neg_padj$Factor7,decreasing = F),])[1:10]
+
+pos_terms <- pos_ES[rownames(pos_ES) %in% rownames(pos_padj[order(pos_padj$Factor7,decreasing = F),])[1:10],]
+pos_terms <- pos_terms[match(rownames(pos_padj[order(pos_padj$Factor7,decreasing = F),])[1:10],row.names(pos_terms)),]
+neg_terms <- neg_ES[rownames(neg_ES) %in% rownames(neg_padj[order(neg_padj$Factor7,decreasing = F),])[1:10],]
+neg_terms <- neg_terms[match(rownames(neg_padj[order(neg_padj$Factor7,decreasing = F),])[1:10],row.names(neg_terms)),]
+
+f7_GSEA$ES[1:10] <- pos_terms$Factor7
+f7_GSEA$ES[11:20] <- -(neg_terms$Factor7)
+
+# rename pathways and round pvals for plotting
+f7_GSEA$TERM <-  gsub("GOBP_","",f7_GSEA$TERM)
+f7_GSEA$TERM <-  gsub("_"," ",f7_GSEA$TERM)
+f7_GSEA$TERM <-  tolower(f7_GSEA$TERM)
+f7_GSEA$p_adj <- signif(f7_GSEA$p_adj, digits=3)
+
+
+f7_gsea_plot <- ggbarplot(f7_GSEA, x = "TERM", y = "ES",
+          fill = "dir",               # change fill color by cyl
+          color = "black",            # Set bar border colors to white
+          sort.val = "desc",          # Sort the value in dscending order
+          sort.by.groups = FALSE,     # Don't sort inside each group
+          #x.text.angle = 90           # Rotate vertically x axis texts
+          )+ylim(-12,12)+NoLegend()+xlab(NULL)+ylab("enrichment score")+geom_text(aes(y=2*abs(ES)/ES,label = p_adj), vjust = 0.5,hjust=0.5,size=2.5)+  theme(axis.text.x = element_text(size = 14))+coord_flip()
+
+ggsave("/path/to/figures/FigureS4d_GSEA_factor7.pdf",f7_gsea_plot,width=8,height=8)
+
+# factor 8
+f8_GSEA <- data.frame(TERM=rep("",times=20),ES=rep(0,times=20), p_adj=rep(0,times=20),dir=c(rep("up",times=10),rep("down",times=10)))
+
+f8_GSEA$p_adj[1:10] <- pos_padj$Factor8[order(pos_padj$Factor8,decreasing = F)]
+f8_GSEA$TERM[1:10] <- rownames(pos_padj[order(pos_padj$Factor8,decreasing = F),])[1:10]
+f8_GSEA$p_adj[11:20] <- neg_padj$Factor8[order(neg_padj$Factor8,decreasing = F)]
+f8_GSEA$TERM[11:20] <- rownames(neg_padj[order(neg_padj$Factor8,decreasing = F),])[1:10]
+
+pos_terms <- pos_ES[rownames(pos_ES) %in% rownames(pos_padj[order(pos_padj$Factor8,decreasing = F),])[1:10],]
+pos_terms <- pos_terms[match(rownames(pos_padj[order(pos_padj$Factor8,decreasing = F),])[1:10],row.names(pos_terms)),]
+neg_terms <- neg_ES[rownames(neg_ES) %in% rownames(neg_padj[order(neg_padj$Factor8,decreasing = F),])[1:10],]
+neg_terms <- neg_terms[match(rownames(neg_padj[order(neg_padj$Factor8,decreasing = F),])[1:10],row.names(neg_terms)),]
+
+f8_GSEA$ES[1:10] <- pos_terms$Factor8
+f8_GSEA$ES[11:20] <- -(neg_terms$Factor8)
+
+# rename pathways and round pvals for plotting
+f8_GSEA$TERM <-  gsub("GOBP_","",f8_GSEA$TERM)
+f8_GSEA$TERM <-  gsub("_"," ",f8_GSEA$TERM)
+f8_GSEA$TERM <-  tolower(f8_GSEA$TERM)
+f8_GSEA$p_adj <- signif(f8_GSEA$p_adj, digits=3)
+
+
+f8_gsea_plot <- ggbarplot(f8_GSEA, x = "TERM", y = "ES",
+          fill = "dir",               # change fill color by cyl
+          color = "black",            # Set bar border colors to white
+          sort.val = "desc",          # Sort the value in dscending order
+          sort.by.groups = FALSE,     # Don't sort inside each group
+          #x.text.angle = 90           # Rotate vertically x axis texts
+          )+ylim(-10,50)+NoLegend()+xlab(NULL)+ylab("enrichment score")+geom_text(aes(y=5*abs(ES)/ES,label = p_adj), vjust = 0.5,hjust=0.5,size=2.5)+  theme(axis.text.x = element_text(size = 14))+coord_flip()
+
+ggsave("/path/to/figures/FigureS4d_GSEA_factor8.pdf",f8_gsea_plot,width=8,height=8)
+
+```
+
+
+Plot motif enrichment results for Factors with distal peaks - not in manuscript
+
+```{r motif6,warning=FALSE, message=FALSE, results='hide'}
+
+# Convert motifs to TF names 
+tf_motif_df <- data.frame(motif=rep("",times=length(pfm@listData)),TF=rep("",times=length(pfm@listData)))
+
+for (i in 1:length(pfm@listData)){
+  data <- pfm@listData[i]
+  motif <- names(pfm@listData[i])
+  tf_motif_df[i,1] <- data[[1]]@ID
+  tf_motif_df[i,2] <-data[[1]]@name
+}
+
+rownames(motif.enrichment.positive_distal$pval.adj)<-tf_motif_df$TF[tf_motif_df$motif %in% rownames(motif.enrichment.positive_distal$pval.adj)]
+
+rownames(motif.enrichment.negative_distal$pval.adj)<-tf_motif_df$TF[tf_motif_df$motif %in% rownames(motif.enrichment.negative_distal$pval.adj)]
+
+rownames(motif.enrichment.positive_promoter$pval.adj)<-tf_motif_df$TF[tf_motif_df$motif %in% rownames(motif.enrichment.positive_promoter$pval.adj)]
+
+rownames(motif.enrichment.negative_promoter$pval.adj)<-tf_motif_df$TF[tf_motif_df$motif %in% rownames(motif.enrichment.negative_promoter$pval.adj)]
+
+#Factor 6 - not in manuscript
+p10a <- plot_enrichment(motif.enrichment.positive_distal, factor = 6, max.pathways = 10)
+p10b <- plot_enrichment(motif.enrichment.negative_distal, factor = 6, max.pathways = 10)
+p10c <- plot_enrichment(motif.enrichment.positive_promoter, factor = 6, max.pathways = 10)
+p10d <- plot_enrichment(motif.enrichment.negative_promoter, factor = 6, max.pathways = 10)
+
+#Factor 7 - not in manuscript
+p11a <- plot_enrichment(motif.enrichment.positive_distal, factor = 7, max.pathways = 10)
+p11b <- plot_enrichment(motif.enrichment.negative_distal, factor = 7, max.pathways = 10)
+p11c <- plot_enrichment(motif.enrichment.positive_promoter, factor = 7, max.pathways = 10)
+p11d <- plot_enrichment(motif.enrichment.negative_promoter, factor = 7, max.pathways = 10)
+
+#Factor8 - not in manuscript
+p12a <- plot_enrichment(motif.enrichment.positive_distal, factor = 8, max.pathways = 10)
+p12b <- plot_enrichment(motif.enrichment.negative_distal, factor = 8, max.pathways = 10)
+p12c <- plot_enrichment(motif.enrichment.positive_promoter, factor = 8, max.pathways = 10)
+p12d <- plot_enrichment(motif.enrichment.negative_promoter, factor = 8, max.pathways = 10)
+
+```
+
+Visualization of the motifs using MotifPlot
+
+```{r motifplot6,warning=FALSE, message=FALSE, results='hide'}
+sig.motifs.positive_distal <- motif.enrichment.positive_distal$pval.adj[,"Factor6"] %>%
+  sort %>% head(n=4) %>% names
+sig.motifs.positive_promoter <- motif.enrichment.positive_promoter$pval.adj[,"Factor6"] %>%
+  sort %>% head(n=4) %>% names
+sig.motifs.negative_distal <- motif.enrichment.negative_distal$pval.adj[,"Factor6"] %>%
+  sort %>% head(n=4) %>% names
+sig.motifs.negative_promoter <- motif.enrichment.negative_promoter$pval.adj[,"Factor6"] %>%
+  sort %>% head(n=4) %>% names
+
+#Factor 6
+p13a<-MotifPlot(seurat, motifs = sig.motifs.positive_distal,assay="ATAC_distal")
+p13b <- MotifPlot(seurat, motifs = sig.motifs.positive_promoter,assay="ATAC_promoter")
+p13c<-MotifPlot(seurat, motifs = sig.motifs.negative_distal,assay="ATAC_distal")
+p13d <- MotifPlot(seurat, motifs = sig.motifs.negative_promoter,assay="ATAC_promoter")
+
+# Factor 7
+sig.motifs.positive_distal <- motif.enrichment.positive_distal$pval.adj[,"Factor7"] %>%
+  sort %>% head(n=4) %>% names
+sig.motifs.positive_promoter <- motif.enrichment.positive_promoter$pval.adj[,"Factor7"] %>%
+  sort %>% head(n=4) %>% names
+sig.motifs.negative_distal <- motif.enrichment.negative_distal$pval.adj[,"Factor7"] %>%
+  sort %>% head(n=4) %>% names
+sig.motifs.negative_promoter <- motif.enrichment.negative_promoter$pval.adj[,"Factor7"] %>%
+  sort %>% head(n=4) %>% names
+
+p14a<-MotifPlot(seurat, motifs = sig.motifs.positive_distal,assay="ATAC_distal")
+p14b <- MotifPlot(seurat, motifs = sig.motifs.positive_promoter,assay="ATAC_promoter")
+p14c<-MotifPlot(seurat, motifs = sig.motifs.negative_distal,assay="ATAC_distal")
+p14d <- MotifPlot(seurat, motifs = sig.motifs.negative_promoter,assay="ATAC_promoter")
+
+# Factor 8 
+sig.motifs.positive_distal <- motif.enrichment.positive_distal$pval.adj[,"Factor8"] %>%
+  sort %>% head(n=4) %>% names
+sig.motifs.positive_promoter <- motif.enrichment.positive_promoter$pval.adj[,"Factor8"] %>%
+  sort %>% head(n=4) %>% names
+sig.motifs.negative_distal <- motif.enrichment.negative_distal$pval.adj[,"Factor8"] %>%
+  sort %>% head(n=4) %>% names
+sig.motifs.negative_promoter <- motif.enrichment.negative_promoter$pval.adj[,"Factor8"] %>%
+  sort %>% head(n=4) %>% names
+
+p15a<-MotifPlot(seurat, motifs = sig.motifs.positive_distal,assay="ATAC_distal")
+ggsave("/path/to/figures/FigureS4e_Motif_plots_pos_distal_8.pdf",p15a,width=5,height=2.5)
+p15b <- MotifPlot(seurat, motifs = sig.motifs.positive_promoter,assay="ATAC_promoter")
+ggsave("/path/to/figures/FigureS4e_Motif_plots_pos_promoter_8.pdf",p15a,width=5,height=2.5)
+p15c<-MotifPlot(seurat, motifs = sig.motifs.negative_distal,assay="ATAC_distal")
+ggsave("/path/to/figures/Figure3/3e_Motif_plots_neg_distal_8.pdf",p15c,width=5,height=2.5)
+p15d <- MotifPlot(seurat, motifs = sig.motifs.negative_promoter,assay="ATAC_promoter")
+ggsave("/path/to/figures/Figure3/3e_Motif_plots_neg_promoter_8.pdf",p15d,width=5,height=2.5)
+```
+

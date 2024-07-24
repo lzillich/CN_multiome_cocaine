@@ -1,0 +1,578 @@
+---
+title: "DE, DA"
+author: "Lea Zillich"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(Seurat)
+library(SeuratObject)
+library(tidyr)
+library(ggplot2)
+library(BSgenome.Hsapiens.UCSC.hg38)
+library(Signac)
+library(data.table)
+#library(enrichR)
+library(presto)
+library(ggpubr)
+library(ComplexHeatmap)
+```
+
+# Import data
+```{r importObject, echo=FALSE}
+#seurat <- readRDS("/path/to/data/4_cell_types_harmony_24.rds")
+#seurat@meta.data$cluster_condition <- paste0(seurat@meta.data$CUD,"_",seurat@meta.data$celltypes)
+#seurat <- LinkPeaks(seurat, peak.assay = "ATAC",expression.assay = "RNA")
+#saveRDS(seurat,"/path/to/data/6_LinkedPeaks.rds")
+seurat <- readRDS("/path/to/data/6_LinkedPeaks.rds")
+```
+
+# Differential Expression Analysis
+
+```{r DE, echo=FALSE}
+DefaultAssay(seurat) <- "RNA"
+
+for (i in unique(seurat@meta.data$celltypes)){
+
+markers_cl <- FindMarkers(seurat,ident.1 = paste0("CocUD_",i), ident.2 = paste0("Ctrl_",i), min.pct = 0.25,assay = "RNA",logfc.threshold = 0)
+head(markers_cl,100)
+
+write.csv(markers_cl, paste0("/path/to/results/DE/FindMarkers/cluster",i,".csv"), row.names = T)
+
+}
+```
+
+# Heatmap of DE genes across clusters - Figure 2a, also plot volcanoplots for each cluster in the supplement
+```{r hm_GEX,warning=FALSE, message=FALSE, results='hide'}
+# Import DE results - log2FC 0.5 cutoff and padj 0.05, only celltypes with more than 100 cells from each condition
+OPC <- read.csv("/path/to/results/DE/FindMarkers/clusterOPC.csv")
+OPC_sig <- OPC[OPC$p_val_adj<0.05 & abs(OPC$avg_log2FC)>0.5 ,]
+OPC_sig <- OPC_sig[OPC_sig$pct.1 > 0.25 | OPC_sig$pct.2 > 0.25, ]
+OPC_top10 <- OPC_sig$X[order(abs(OPC_sig$avg_log2FC),decreasing = T)][c(1:10)]
+
+Oligodendrocyte <- read.csv("/path/to/results/DE/FindMarkers/clusterOligodendrocyte.csv")
+Oligodendrocyte_sig <- Oligodendrocyte[Oligodendrocyte$p_val_adj<0.05 & abs(Oligodendrocyte$avg_log2FC)>0.5,]
+Oligodendrocyte_sig <- Oligodendrocyte_sig[Oligodendrocyte_sig$pct.1 > 0.25 | Oligodendrocyte_sig$pct.2 > 0.25, ]
+Oligodendrocyte_top10 <- Oligodendrocyte_sig$X[order(abs(Oligodendrocyte_sig$avg_log2FC),decreasing = T)][c(1:10)]
+
+Astrocyte <- read.csv("/path/to/results/DE/FindMarkers/clusterAstrocyte.csv")
+Astrocyte_sig <- Astrocyte[Astrocyte$p_val_adj<0.05 & abs(Astrocyte$avg_log2FC)>0.5,]
+Astrocyte_sig <- Astrocyte_sig[Astrocyte_sig$pct.1 > 0.25 | Astrocyte_sig$pct.2 > 0.25, ]
+Astrocyte_top10 <- Astrocyte_sig$X[order(abs(Astrocyte_sig$avg_log2FC),decreasing = T)][c(1:10)]
+
+Microglia <- read.csv("/path/to/results/DE/FindMarkers/clusterMicroglia.csv")
+Microglia_sig <- Microglia[Microglia$p_val_adj<0.05 & abs(Microglia$avg_log2FC)>0.5,]
+Microglia_sig <- Microglia_sig[Microglia_sig$pct.1 > 0.25 | Microglia_sig$pct.2 > 0.25, ]
+Microglia_top10 <- Microglia_sig$X[order(abs(Microglia_sig$avg_log2FC),decreasing = T)][c(1:10)]
+
+
+GABAergic_PTHLH_PVALB <- read.csv("/path/to/results/DE/FindMarkers/clusterGABAergic - PTHLH PVALB.csv")
+GABAergic_PTHLH_PVALB_sig <- GABAergic_PTHLH_PVALB[GABAergic_PTHLH_PVALB$p_val_adj<0.05 & abs(GABAergic_PTHLH_PVALB$avg_log2FC)>0.5,]
+GABAergic_PTHLH_PVALB_sig <- GABAergic_PTHLH_PVALB_sig[GABAergic_PTHLH_PVALB_sig$pct.1 > 0.25 | GABAergic_PTHLH_PVALB_sig$pct.2 > 0.25, ]
+GABAergic_PTHLH_PVALB_top10 <- GABAergic_PTHLH_PVALB_sig$X[order(abs(GABAergic_PTHLH_PVALB_sig$avg_log2FC),decreasing = T)][c(1:10)]
+
+
+D2MSN <- read.csv("/path/to/results/DE/FindMarkers/clusterGABAergic - D2 MSN.csv")
+D2MSN_sig <- D2MSN[D2MSN$p_val_adj<0.05 & abs(D2MSN$avg_log2FC)>0.5,]
+D2MSN_sig <- D2MSN_sig[D2MSN_sig$pct.1 > 0.25 | D2MSN_sig$pct.2 > 0.25, ]
+D2MSN_top10 <- D2MSN_sig$X[order(abs(D2MSN_sig$avg_log2FC),decreasing = T)][c(1:10)]
+
+
+D1MSN_ADARB2 <- read.csv("/path/to/results/DE/FindMarkers/clusterGABAergic - D1 MSN ADARB2.csv")
+D1MSN_ADARB2_sig <- D1MSN_ADARB2[D1MSN_ADARB2$p_val_adj<0.05 & abs(D1MSN_ADARB2$avg_log2FC)>0.5,]
+D1MSN_ADARB2_sig <- D1MSN_ADARB2_sig[D1MSN_ADARB2_sig$pct.1 > 0.25 | D1MSN_ADARB2_sig$pct.2 > 0.25, ]
+D1MSN_ADARB2_top10 <- D1MSN_ADARB2_sig$X[order(abs(D1MSN_ADARB2_sig$avg_log2FC),decreasing = T)][c(1:10)]
+
+
+D1MSN <- read.csv("/path/to/results/DE/FindMarkers/clusterGABAergic - D1 MSN.csv")
+D1MSN_sig <- D1MSN[D1MSN$p_val_adj<0.05 & abs(D1MSN$avg_log2FC)>0.5,]
+D1MSN_sig <- D1MSN_sig[D1MSN_sig$pct.1 > 0.25 | D1MSN_sig$pct.2 > 0.25, ]
+D1MSN_top10 <- D1MSN_sig$X[order(abs(D1MSN_sig$avg_log2FC),decreasing = T)][c(1:10)]
+
+
+GABA_CALB2 <- read.csv("/path/to/results/DE/FindMarkers/clusterGABAergic - CALB2.csv")
+GABA_CALB2_sig <- GABA_CALB2[GABA_CALB2$p_val_adj<0.05 & abs(GABA_CALB2$avg_log2FC)>0.5,]
+GABA_CALB2_sig <- GABA_CALB2_sig[GABA_CALB2_sig$pct.1 > 0.25 | GABA_CALB2_sig$pct.2 > 0.25, ]
+GABA_CALB2_top10 <- GABA_CALB2_sig$X[order(abs(GABA_CALB2_sig$avg_log2FC),decreasing = T)][c(1:10)]
+
+
+# Get list of DE genes that need to be included in the heatmap
+DE_genes <- c(OPC_sig$X,Oligodendrocyte_sig$X,D1MSN_sig$X,D1MSN_ADARB2_sig$X,GABA_CALB2_sig$X,D2MSN_sig$X,GABAergic_PTHLH_PVALB_sig$X,Microglia_sig$X,Astrocyte_sig$X)
+DE_genes <- DE_genes[!duplicated(DE_genes)]
+
+# Obtain log2FCs for each cluster for the selection of DE genes
+OPC <- OPC[OPC$X %in% DE_genes,c("X","avg_log2FC")]
+colnames(OPC)[2] <- "OPC"
+
+Oligodendrocyte <- Oligodendrocyte[Oligodendrocyte$X %in% DE_genes,c("X","avg_log2FC")]
+colnames(Oligodendrocyte)[2] <- "Oligodendrocyte"
+
+Astrocyte <- Astrocyte[Astrocyte$X %in% DE_genes,c("X","avg_log2FC")]
+colnames(Astrocyte)[2] <- "Astrocyte"
+
+Microglia <- Microglia[Microglia$X %in% DE_genes,c("X","avg_log2FC")]
+colnames(Microglia)[2] <- "Microglia"
+
+D1MSN <- D1MSN[D1MSN$X %in% DE_genes,c("X","avg_log2FC")]
+colnames(D1MSN)[2] <- "D1MSN"
+
+D2MSN <- D2MSN[D2MSN$X %in% DE_genes,c("X","avg_log2FC")]
+colnames(D2MSN)[2] <- "D2MSN"
+
+GABAergic_PTHLH_PVALB <- GABAergic_PTHLH_PVALB[GABAergic_PTHLH_PVALB$X %in% DE_genes,c("X","avg_log2FC")]
+colnames(GABAergic_PTHLH_PVALB)[2] <- "GABAergic_PTHLH_PVALB"
+
+GABA_CALB2 <- GABA_CALB2[GABA_CALB2$X %in% DE_genes,c("X","avg_log2FC")]
+colnames(GABA_CALB2)[2] <- "GABAergic_CALB2"
+
+D1MSN_ADARB2 <- D1MSN_ADARB2[D1MSN_ADARB2$X %in% DE_genes,c("X","avg_log2FC")]
+colnames(D1MSN_ADARB2)[2] <- "D1MSN_ADARB2"
+
+# merge dfs
+library(tidyverse)
+dfs<-list(OPC,Oligodendrocyte,Astrocyte,Microglia,D1MSN,D2MSN,GABAergic_PTHLH_PVALB,GABA_CALB2,D1MSN_ADARB2) %>% reduce(inner_join,by="X")
+rownames(dfs)<-dfs$X
+
+# Create log2FC heatmap
+hm_DEG <- as.matrix(dfs[,-1])
+
+#reorder the rows to match with annotation labels
+rows_DEG <- row_order(Heatmap(hm_DEG,name="log2FC",column_names_gp  = gpar(fontsize=8),column_names_rot = 45))
+hm_DEG <- hm_DEG[rows_DEG,]
+
+# subset genes for labeling in the heatmap
+lab <- rownames(hm_DEG)
+lab_genes <- c(OPC_top10,Oligodendrocyte_top10,Astrocyte_top10,Microglia_top10,D1MSN_ADARB2_top10,D1MSN_top10,D2MSN_top10,GABA_CALB2_top10,GABAergic_PTHLH_PVALB_top10)
+ #remove mitochondrial genes, pseudogenes and XIST
+
+lab_genes <- lab_genes[-grep("RPS|RPL|XIST|MT-|AC|AL",lab_genes)]
+lab[!(lab %in% lab_genes)] <- ""
+lab_genes <- unique(lab_genes)
+
+# Plot heatmap
+library(ComplexHeatmap)
+pdf("/path/to/figures/Figure2a_DEG_hm.pdf",width=4,height=8)
+Heatmap(hm_DEG,name="log2FC",column_names_gp  = gpar(fontsize=8),column_names_rot = 45) + rowAnnotation(link = anno_mark(at = which(rownames(hm_DEG)==lab), 
+        labels = lab[lab !=""], padding = unit(1, "mm"),link_gp = gpar(lwd = 0.1) ,labels_gp = gpar(fontsize = 6)))
+dev.off()
+```
+
+# Upset plot of DE genes shared between clusters - Figure 2b
+```{r venn,warning=FALSE, message=FALSE, results='hide'}
+library(UpSetR)
+cell_list <- list(Astrocyte = Astrocyte_sig$X,OPC = OPC_sig$X,Oligodendrocyte=Oligodendrocyte_sig$X,Microglia=Microglia_sig$X,D1MSN=D1MSN_sig$X,D2MSN=D2MSN_sig$X,D1MSN_ADARB2=D1MSN_ADARB2_sig$X,GABAergic_CALB2=GABA_CALB2_sig$X,GABAergic_PTHLH_PVALB=GABAergic_PTHLH_PVALB_sig$X)
+
+pdf("/path/to/figures/Figure2b_Upset_DEG.pdf",width=6,height=4)
+upset(fromList(cell_list),nsets = 9,nintersects = 30,sets.x.label = "DE genes",mainbar.y.label = "DE gene overlap",order.by = "freq")
+dev.off()
+```
+
+# GO terms for DE genes in clusters - Figure 2c & 2d
+```{r venn,warning=FALSE, message=FALSE, results='hide'}
+# use the compareClusters function of clusterProfiler
+# create gene list with DE genes for each cluster 
+
+GO_both_dir <- list(Astrocyte=unique(Astrocyte_sig$X),Microglia=unique(Microglia_sig$X),Oligodendrocyte=unique(Oligodendrocyte_sig$X),OPC=unique(OPC_sig$X),GABAergic_D1MSN=unique(D1MSN_sig$X),GABAergic_D2MSN=unique(D2MSN_sig$X),GABAergic_D1MSN_ADARB2=unique(D1MSN_ADARB2_sig$X),GABAergic_CALB2=unique(GABA_CALB2_sig$X),GABAergic_PTHLH_PVALB=unique(GABAergic_PTHLH_PVALB_sig$X))
+
+library(clusterProfiler)
+library(org.Hs.eg.db)
+library(enrichplot)
+
+both_dir_GO <- compareCluster(geneClusters = GO_both_dir,fun = "enrichGO",OrgDb = org.Hs.eg.db,keyType = "SYMBOL",pvalueCutoff=0.05,ont="ALL")
+both_dir_GO <-pairwise_termsim(both_dir_GO)
+p3 <- emapplot(both_dir_GO,legend_n=3,cex_line=0.1,cex_label_category=0.85,layout="nicely",cex_category=0.8,showCategory=16,pie="count")+scale_fill_manual(values=c("#F7AB64","#74BA59","#70305A", "#E8326D", "#3A9BCC","#85CEE4","#003E65","#BFE1D7","#D1BCDC"))
+ggsave("/path/to/figures/Figure2c_GO_both_dir_new.pdf",p3,height=8,width=8)
+ggsave("/path/to/figures/Figure2c_GO_both_dir_new_legend.pdf",p3,height=18,width=18)
+
+list_KEGG <- list(Astrocyte=c(as.character(mapIds(org.Hs.eg.db,  unique(Astrocyte_sig$X), 'ENTREZID', 'SYMBOL'))),Microglia=c(as.character(mapIds(org.Hs.eg.db,  unique(Microglia_sig$X), 'ENTREZID', 'SYMBOL'))),Oligodendrocyte=c(as.character(mapIds(org.Hs.eg.db,  unique(Oligodendrocyte_sig$X), 'ENTREZID', 'SYMBOL'))),OPC=c(as.character(mapIds(org.Hs.eg.db,  unique(OPC_sig$X), 'ENTREZID', 'SYMBOL'))),GABAergic_D1MSN=c(as.character(mapIds(org.Hs.eg.db,  unique(D1MSN_sig$X), 'ENTREZID', 'SYMBOL'))),GABAergic_D2MSN=c(as.character(mapIds(org.Hs.eg.db,  unique(D2MSN_sig$X), 'ENTREZID', 'SYMBOL'))),GABAergic_D1MSN_ADARB2=c(as.character(mapIds(org.Hs.eg.db,  unique(D1MSN_ADARB2_sig$X), 'ENTREZID', 'SYMBOL'))),GABAergic_CALB2=c(as.character(mapIds(org.Hs.eg.db,  unique(GABA_CALB2_sig$X), 'ENTREZID', 'SYMBOL'))),GABAergic_PTHLH_PVALB=c(as.character(mapIds(org.Hs.eg.db,  unique(GABAergic_PTHLH_PVALB_sig$X), 'ENTREZID', 'SYMBOL'))))
+
+for(i in 1:length(list_KEGG)){
+  list_KEGG[[i]] <- list_KEGG[[i]][!is.na(list_KEGG[[i]])] 
+}
+
+  KEGG <- compareCluster(geneClusters = list_KEGG,fun = "enrichKEGG",keyType = "kegg",pvalueCutoff=0.05)
+  
+  KEGG<-pairwise_termsim(KEGG)
+  
+p4 <- emapplot(KEGG,legend_n=3,cex_line=0.1,cex_label_category=0.85,layout="nicely",cex_category=0.8,showCategory=16,pie="count")+scale_fill_manual(values=c("#F7AB64","#74BA59","#70305A", "#E8326D", "#3A9BCC","#85CEE4","#003E65","#BFE1D7","#D1BCDC"))
+  ggsave("/path/to/figures/Figure2d_KEGG_multiome.pdf",p4,height=8,width=8)
+  
+```
+
+
+
+### Differential accessibility 
+
+```{r analysis CUD vs. ctrl, warning=FALSE, message=FALSE, results='hide'}
+Idents(seurat) <- "cluster_condition"
+DefaultAssay(seurat) <- "ATAC"
+
+for (i in unique(seurat@meta.data$celltypes)){
+
+peaks <- FindMarkers(seurat,ident.1 = paste0("CocUD_",i), ident.2 = paste0("Ctrl_",i),assay = "ATAC",test.use = "LR",latent.vars = "nFeature_ATAC",logfc.threshold = 0, min.pct = 0)
+
+head(peaks,100)
+
+write.csv(peaks, paste0("/path/to/results/DAc/FindMarkers/cluster",i,".csv"), row.names = T)
+}
+```
+
+
+# Heatmap of diff acc peaks between clusters - Figure 2e
+```{r hm_AC,warning=FALSE, message=FALSE, results='hide'}
+# Import DAc results - log2FC 1 cutoff and padj 0.05, only celltypes with more than 100 cells from each condition
+OPC_peaks <- read.csv("/path/to/results/DAc/FindMarkers/clusterOPC.csv")
+OPC_sig_peaks <- OPC_peaks[OPC_peaks$p_val_adj<0.05 & abs(OPC_peaks$avg_log2FC)>0.25 ,]
+OPC_sig_peaks <- OPC_sig_peaks[OPC_sig_peaks$pct.1 > 0.05 | OPC_sig_peaks$pct.2 > 0.05, ]
+
+
+Oligodendrocyte_peaks <- read.csv("/path/to/results/DAc/FindMarkers/clusterOligodendrocyte.csv")
+Oligodendrocyte_sig_peaks <- Oligodendrocyte_peaks[Oligodendrocyte_peaks$p_val_adj<0.05 & abs(Oligodendrocyte_peaks$avg_log2FC)>0.25,]
+Oligodendrocyte_sig_peaks <- Oligodendrocyte_sig_peaks[Oligodendrocyte_sig_peaks$pct.1 > 0.05 | Oligodendrocyte_sig_peaks$pct.2 > 0.05, ]
+
+
+Astrocyte_peaks <- read.csv("/path/to/results/DAc/FindMarkers/clusterAstrocyte.csv")
+Astrocyte_sig_peaks <- Astrocyte_peaks[Astrocyte_peaks$p_val_adj<0.05 & abs(Astrocyte_peaks$avg_log2FC)>0.25,]
+Astrocyte_sig_peaks <- Astrocyte_sig_peaks[Astrocyte_sig_peaks$pct.1 > 0.05 | Astrocyte_sig_peaks$pct.2 > 0.05, ]
+
+Microglia_peaks <- read.csv("/path/to/results/DAc/FindMarkers/clusterMicroglia.csv")
+Microglia_sig_peaks <- Microglia_peaks[Microglia_peaks$p_val_adj<0.05 & abs(Microglia_peaks$avg_log2FC)>0.25,]
+Microglia_sig_peaks <- Microglia_sig_peaks[Microglia_sig_peaks$pct.1 > 0.05 | Microglia_sig_peaks$pct.2 > 0.05, ]
+
+
+GABAergic_PTHLH_PVALB_peaks <- read.csv("/path/to/results/DAc/FindMarkers/clusterGABAergic - PTHLH PVALB.csv")
+GABAergic_PTHLH_PVALB_sig_peaks <- GABAergic_PTHLH_PVALB_peaks[GABAergic_PTHLH_PVALB_peaks$p_val_adj<0.05 & abs(GABAergic_PTHLH_PVALB_peaks$avg_log2FC)>0.25,]
+GABAergic_PTHLH_PVALB_sig_peaks <- GABAergic_PTHLH_PVALB_sig_peaks[GABAergic_PTHLH_PVALB_sig_peaks$pct.1 > 0.05 | GABAergic_PTHLH_PVALB_sig_peaks$pct.2 > 0.05, ]
+
+D2MSN_peaks <- read.csv("/path/to/results/DAc/FindMarkers/clusterGABAergic - D2 MSN.csv")
+D2MSN_sig_peaks <- D2MSN_peaks[D2MSN_peaks$p_val_adj<0.05 & abs(D2MSN_peaks$avg_log2FC)>0.25,]
+D2MSN_sig_peaks <- D2MSN_sig_peaks[D2MSN_sig_peaks$pct.1 > 0.05 | D2MSN_sig_peaks$pct.2 > 0.05, ]
+
+
+D1MSN_ADARB2_peaks <- read.csv("/path/to/results/DAc/FindMarkers/clusterGABAergic - D1 MSN ADARB2.csv")
+D1MSN_ADARB2_sig_peaks <- D1MSN_ADARB2_peaks[D1MSN_ADARB2_peaks$p_val_adj<0.05 & abs(D1MSN_ADARB2_peaks$avg_log2FC)>0.25,]
+D1MSN_ADARB2_sig_peaks <- D1MSN_ADARB2_sig_peaks[D1MSN_ADARB2_sig_peaks$pct.1 > 0.05 | D1MSN_ADARB2_sig_peaks$pct.2 > 0.05, ]
+
+
+D1MSN_peaks <- read.csv("/path/to/results/DAc/FindMarkers/clusterGABAergic - D1 MSN.csv")
+D1MSN_sig_peaks <- D1MSN_peaks[D1MSN_peaks$p_val_adj<0.05 & abs(D1MSN_peaks$avg_log2FC)>0.25,]
+D1MSN_sig_peaks <- D1MSN_sig_peaks[D1MSN_sig_peaks$pct.1 > 0.05 | D1MSN_sig_peaks$pct.2 > 0.05, ]
+
+
+GABA_CALB2_peaks <- read.csv("/path/to/results/DAc/FindMarkers/clusterGABAergic - CALB2.csv")
+GABA_CALB2_sig_peaks <- GABA_CALB2_peaks[GABA_CALB2_peaks$p_val_adj<0.05 & abs(GABA_CALB2_peaks$avg_log2FC)>0.25,]
+GABA_CALB2_sig_peaks <- GABA_CALB2_sig_peaks[GABA_CALB2_sig_peaks$pct.1 > 0.05 | GABA_CALB2_sig_peaks$pct.2 > 0.05, ]
+
+
+# Get list of DE peaks that need to be included in the heatmap
+DE_peaks <- c(OPC_sig_peaks$X,Oligodendrocyte_sig_peaks$X,D1MSN_sig_peaks$X,D1MSN_ADARB2_sig_peaks$X,GABA_CALB2_sig_peaks$X,D2MSN_sig_peaks$X,GABAergic_PTHLH_PVALB_sig_peaks$X,Microglia_sig_peaks$X,Astrocyte_sig_peaks$X)
+DE_peaks <- DE_peaks[!duplicated(DE_peaks)]
+
+# Obtain log2FCs for each cluster for the selection of DE genes
+OPC_peaks <- OPC_peaks[OPC_peaks$X %in% DE_peaks,c("X","avg_log2FC")]
+colnames(OPC_peaks)[2] <- "OPC"
+
+Oligodendrocyte_peaks <- Oligodendrocyte_peaks[Oligodendrocyte_peaks$X %in% DE_peaks,c("X","avg_log2FC")]
+colnames(Oligodendrocyte_peaks)[2] <- "Oligodendrocyte"
+
+Astrocyte_peaks <- Astrocyte_peaks[Astrocyte_peaks$X %in% DE_peaks,c("X","avg_log2FC")]
+colnames(Astrocyte_peaks)[2] <- "Astrocyte"
+
+Microglia_peaks <- Microglia_peaks[Microglia_peaks$X %in% DE_peaks,c("X","avg_log2FC")]
+colnames(Microglia_peaks)[2] <- "Microglia"
+
+D1MSN_peaks <- D1MSN_peaks[D1MSN_peaks$X %in% DE_peaks,c("X","avg_log2FC")]
+colnames(D1MSN_peaks)[2] <- "D1MSN"
+
+D2MSN_peaks <- D2MSN_peaks[D2MSN_peaks$X %in% DE_peaks,c("X","avg_log2FC")]
+colnames(D2MSN_peaks)[2] <- "D2MSN"
+
+GABAergic_PTHLH_PVALB_peaks <- GABAergic_PTHLH_PVALB_peaks[GABAergic_PTHLH_PVALB_peaks$X %in% DE_peaks,c("X","avg_log2FC")]
+colnames(GABAergic_PTHLH_PVALB_peaks)[2] <- "GABAergic_PTHLH_PVALB"
+
+GABA_CALB2_peaks <- GABA_CALB2_peaks[GABA_CALB2_peaks$X %in% DE_peaks,c("X","avg_log2FC")]
+colnames(GABA_CALB2_peaks)[2] <- "GABAergic_CALB2"
+
+D1MSN_ADARB2_peaks <- D1MSN_ADARB2_peaks[D1MSN_ADARB2_peaks$X %in% DE_peaks,c("X","avg_log2FC")]
+colnames(D1MSN_ADARB2_peaks)[2] <- "D1MSN_ADARB2"
+
+# merge dfs
+library(tidyverse)
+dfs<-list(OPC_peaks,Oligodendrocyte_peaks,Astrocyte_peaks,Microglia_peaks,D1MSN_peaks,D2MSN_peaks,GABAergic_PTHLH_PVALB_peaks,GABA_CALB2_peaks,D1MSN_ADARB2_peaks) %>% reduce(inner_join,by="X")
+rownames(dfs)<-dfs$X
+
+# Create log2FC heatmap
+hm_DAc <- as.matrix(dfs[,-1])
+
+# Plot heatmap
+
+pdf("/path/to/figures/Figure2eDAc_hm.pdf",width=3,height=8)
+Heatmap(hm_DAc,name="log2FC",column_names_gp  = gpar(fontsize=8),column_names_rot = 45,row_labels = rep("",length=nrow(hm_DAc)))
+dev.off()
+```
+
+
+# Pie chart of genomic distribution of shared diff acc peaks - Figure 2f
+```{r pie,warning=FALSE, message=FALSE, results='hide'}
+library(ChIPseeker)
+library(regioneR)
+
+list_peaks <- vector(mode="list",length=9)
+peak_celltypes <- c("OPC_sig_peaks","Oligodendrocyte_sig_peaks","Astrocyte_sig_peaks","Microglia_sig_peaks","D1MSN_sig_peaks","D2MSN_sig_peaks","GABAergic_PTHLH_PVALB_sig_peaks","GABA_CALB2_sig_peaks","D1MSN_ADARB2_sig_peaks")
+names(list_peaks)<-peak_celltypes
+
+for(j in peak_celltypes){
+k <- get(j)
+peak <- str_split(k[,1],pattern="-")
+peak_2 <- data.frame(chr=rep("",times=length(peak)),start=rep(0,times=length(peak)),end=rep(0,times=length(peak)))
+
+for(i in 1:length(peak)){
+  peak_2$chr[i] <- peak[[i]][1]
+  peak_2$start[i] <- peak[[i]][2]
+  peak_2$end[i] <- peak[[i]][3]
+}
+
+list_peaks[[j]] <- toGRanges(peak_2)
+  
+}
+
+peakAnno_all <- lapply(list_peaks,annotatePeak, tssRegion=c(-3000, 3000),
+                              annoDb="org.Hs.eg.db")
+
+
+# Plot pie for all peaks
+
+peak_pie <- c(OPC_sig_peaks$X,Oligodendrocyte_sig_peaks$X,Astrocyte_sig_peaks$X,Microglia_sig_peaks$X,D1MSN_sig_peaks$X,D2MSN_sig_peaks$X,GABAergic_PTHLH_PVALB_sig_peaks$X,GABA_CALB2_sig_peaks$X,D1MSN_ADARB2_sig_peaks$X)
+peak_pie2 <- str_split(peak_pie,pattern="-")
+peak_2 <- data.frame(chr=rep("",times=length(peak_pie)),start=rep(0,times=length(peak_pie)),end=rep(0,times=length(peak_pie)))
+
+for(i in 1:length(peak_pie)){
+  peak_2$chr[i] <- peak_pie2[[i]][1]
+  peak_2$start[i] <- peak_pie2[[i]][2]
+  peak_2$end[i] <- peak_pie2[[i]][3]
+}
+
+peaks_pie_plot <- toGRanges(peak_2)
+
+anno_all <- annotatePeak(peaks_pie_plot, tssRegion=c(-3000, 3000),
+                              annoDb="org.Hs.eg.db")
+
+pdf("/path/to/figures/Figure2f_pieplot_peak_sig_anno.pdf",width=6,height=6)
+plotAnnoPie(anno_all)
+dev.off()
+
+
+# Calculate enrichment of DA peaks in genomic regions using the full peakset as background
+
+# DA peak annotation
+anno_DA <- as.data.frame(anno_all@anno)
+
+all_peaks <- seurat@assays$ATAC@ranges
+anno_all_peaks <- as.data.frame(annotatePeak(all_peaks, tssRegion=c(-3000, 3000),annoDb="org.Hs.eg.db"))
+
+
+# Calculate percentages of region annotations
+anno <- data.frame(Feature=names(table(anno_all_peaks$annotation)),sum=as.vector(unname(table(anno_all_peaks$annotation))))
+
+first_intron <- anno[grep("intron 1 ",anno$Feature),]
+sum(first_intron$sum) #23732
+first_exon <- anno[grep("exon 1 ",anno$Feature),]
+sum(first_exon$sum) #400
+
+all_intron <-anno[grep("intron",anno$Feature),] 
+sum(all_intron$sum)#83959-23732=60227
+all_exon <- anno[grep("exon",anno$Feature),] 
+sum(all_exon$sum)#8074-400=7674
+
+anno <- anno[-grep("exon",anno$Feature),]
+anno <- anno[-grep("intron",anno$Feature),]
+inex_anno <- data.frame(Feature=c("1st Intron","Other Intron","1st Exon","Other Exon"), sum=c(23732,60227,400,7674))
+anno <- rbind(anno,inex_anno)
+
+all <- sum(unname(table(anno_all_peaks$annotation)))
+anno$percentage <- anno$sum/all
+
+# Calculate percentages of peak annotations
+anno_peaks <- data.frame(Feature=names(table(anno_DA$annotation)),sum=as.vector(unname(table(anno_DA$annotation))))
+
+first_intron <- anno_peaks[grep("intron 1 ",anno_peaks$Feature),]
+sum(first_intron$sum) #1437
+first_exon <- anno_peaks[grep("exon 1 ",anno_peaks$Feature),]
+sum(first_exon$sum) #45
+
+all_intron <-anno_peaks[grep("intron",anno_peaks$Feature),] 
+sum(all_intron$sum)#4774-1437=3337
+all_exon <- anno_peaks[grep("exon",anno_peaks$Feature),] 
+sum(all_exon$sum)#930-45=885
+
+anno_peaks <- anno_peaks[-grep("exon",anno_peaks$Feature),]
+anno_peaks <- anno_peaks[-grep("intron",anno_peaks$Feature),]
+inex_anno_peaks <- data.frame(Feature=c("1st Intron","Other Intron","1st Exon","Other Exon"), sum=c(1437,3337,45,885))
+anno_peaks <- rbind(anno_peaks,inex_anno_peaks)
+
+all <- sum(unname(table(anno_DA$annotation)))
+anno_peaks$percentage <- anno_peaks$sum/all
+
+# Summarize data
+Annotation <- data.frame(region = rep("DA",11),Feature = anno_peaks$Feature,sum=anno_peaks$sum)
+Annotation$Feature <- factor(Annotation$Feature, levels = c("5' UTR","Promoter (<=1kb)","Promoter (1-2kb)","Promoter (2-3kb)","1st Exon","Other Exon","1st Intron","Other Intron","3' UTR","Downstream (<=300bp)","Distal Intergenic"))
+
+# barplot with reference percentage and observed percentage 
+Annotation$percentage <- Annotation$sum/sum(Annotation$sum)
+anno$region <- rep("peaks",times=length(anno$Feature))
+anno <- anno[,c(4,1,2,3)]
+anno_merged <- rbind(anno,Annotation)
+
+# Perform Chi2 tests for enrichmeht/depletion of annotations in comparison to all peaks
+chiqs_summary <- data.frame(DA=rep("",times=11),stringsAsFactors = FALSE )
+
+rownames(chiqs_summary) <- anno$Feature
+
+# Write results into the chisq_summary dataframe 
+
+for (i in anno$Feature){
+  df <- data.frame(i=c(anno_merged$sum[anno_merged$region == "peaks" & anno_merged$Feature == i],anno_merged$sum[anno_merged$region == "DA" & anno_merged$Feature == i]),other=c(204152-anno_merged$sum[anno_merged$region == "peaks" & anno_merged$Feature == i],13482-anno_merged$sum[anno_merged$region == "DA" & anno_merged$Feature == i]))
+  rownames(df) <- c("peaks","DA")
+  colnames(df) <- c(i,"other")
+  res <- chisq.test(df)
+  chiqs_summary[i,"DA"] <- res$p.value 
+}
+
+# correct for multiple testing (n=11) 
+rn <- rownames(chiqs_summary)
+chiqs_summary <- apply(chiqs_summary,2,as.numeric)
+rownames(chiqs_summary) <- rn
+
+for (i in 1:length(colnames(chiqs_summary))){
+  chiqs_summary[,i] <- p.adjust(chiqs_summary[,i],method="bonferroni")}
+
+# Make stars for annotation of the final figure
+makeStars <- function(x){
+  stars <- c( "***", "**", "*","")
+  vec <- c(0, 0.001, 0.01, 0.05,1.01)
+  i <- findInterval(x, vec)
+  stars[i]
+}
+
+anno_merged$padj <- ""
+chiqs_summary <- as.matrix(chiqs_summary)
+
+for (i in anno$Feature){ anno_merged$padj[anno_merged$region == "DA" & anno_merged$Feature == i] <- chiqs_summary[as.character(i),as.character("DA")]}
+anno_merged$padj[1:11] <- 1
+stars <- makeStars(anno_merged$padj)
+
+
+# Plot the results
+position <- c("5' UTR","Promoter (<=1kb)","Promoter (1-2kb)","Promoter (2-3kb)","1st Exon","Other Exon","1st Intron","Other Intron","3' UTR","Downstream (<=300bp)","Distal Intergenic")
+anno_merged$region[1:11] <- rep("background",times=11)
+anno_merged$region[12:22] <- rep("DA peaks - CUD vs. Ctrl",times=11)
+anno_merged$region <- factor(anno_merged$region , levels = c("background","DA peaks - CUD vs. Ctrl"))
+
+pdf("/path/to/figures/Figure2f_Enrichment_peak_anno_barplot.pdf",width=12,height=8)
+ggplot(anno_merged, aes(fill=region, y=percentage*100, x=Feature)) + xlab("") + 
+  geom_bar(position="dodge", stat="identity") + ylab("feature percentage (%)") + theme_minimal() + theme(axis.text.x = element_text(angle = 45, hjust=1)) + guides(fill=guide_legend(title="")) + scale_x_discrete(limits = position)+theme(text = element_text(size=20)) + geom_text(aes(label=stars, group=region), position=position_dodge(width=0.9), vjust=-1,size=5)
+dev.off()
+
+
+
+```
+
+# GO for distal and proximal diff acc peaks - Figure S2
+```{r GOpeaks,warning=FALSE, message=FALSE, results='hide'}
+list_peaks_prom <- vector(mode="list",length=9)
+peak_celltypes <- c("OPC_sig_peaks","Oligodendrocyte_sig_peaks","Astrocyte_sig_peaks","Microglia_sig_peaks","D1MSN_sig_peaks","D2MSN_sig_peaks","GABAergic_PTHLH_PVALB_sig_peaks","GABA_CALB2_sig_peaks","D1MSN_ADARB2_sig_peaks")
+names(list_peaks_prom)<-peak_celltypes
+
+list_peaks_dist <- list_peaks_prom
+
+# Distal and promoter peaks 
+
+dist <- as.data.frame(seurat@assays$ATAC_distal@ranges)
+dist <- dist[,c(1:3)]
+colnames(dist)[1] <- "chr"
+dist[] <- lapply(dist, as.character)
+
+prom <- as.data.frame(seurat@assays$ATAC_promoter@ranges)
+prom <- prom[,c(1:3)]
+colnames(prom)[1] <- "chr"
+prom[] <- lapply(prom, as.character)
+
+# Promoter peaks 
+for(j in peak_celltypes){
+k <- get(j)
+peak <- str_split(k[,1],pattern="-")
+peak_2 <- data.frame(chr=rep("",times=length(peak)),start=rep(0,times=length(peak)),end=rep(0,times=length(peak)))
+
+for(i in 1:length(peak)){
+  peak_2$chr[i] <- peak[[i]][1]
+  peak_2$start[i] <- peak[[i]][2]
+  peak_2$end[i] <- peak[[i]][3]
+}
+
+peak_2 <- inner_join(peak_2,prom)
+list_peaks_prom[[j]] <- toGRanges(peak_2)
+  
+}
+
+# Distal peaks 
+for(j in peak_celltypes){
+k <- get(j)
+peak <- str_split(k[,1],pattern="-")
+peak_2 <- data.frame(chr=rep("",times=length(peak)),start=rep(0,times=length(peak)),end=rep(0,times=length(peak)))
+
+for(i in 1:length(peak)){
+  peak_2$chr[i] <- peak[[i]][1]
+  peak_2$start[i] <- peak[[i]][2]
+  peak_2$end[i] <- peak[[i]][3]
+}
+
+peak_2 <- inner_join(peak_2,dist)
+list_peaks_dist[[j]] <- toGRanges(peak_2)
+  
+}
+
+# Annoate peaks 
+
+# First remove empty GRanges in the list
+library(purrr)
+list_peaks_prom <- compact(list_peaks_prom)
+list_peaks_dist <- compact(list_peaks_dist)
+
+peakAnno_prom <- lapply(list_peaks_prom,annotatePeak, tssRegion=c(-3000, 3000),
+                              annoDb="org.Hs.eg.db")
+
+peakAnno_dist <- lapply(list_peaks_dist,annotatePeak, tssRegion=c(-3000, 3000),
+                              annoDb="org.Hs.eg.db")
+
+
+# GO promoter peaks 
+genes_prom = lapply(peakAnno_prom, function(i) as.data.frame(i)$geneId)
+names(genes_prom) = c("OPC","Oligodendrocyte","Astrocyte","Microglia","GABAergic_D1MSN","GABAergic_D2MSN","GABAergic_CALB2","GABAergic_D1MSN_ADARB2")       
+GO_prom <- compareCluster(geneCluster   = genes_prom,
+                         fun           = "enrichGO",
+                         pvalueCutoff  = 0.05,
+                         OrgDb=org.Hs.eg.db)
+GO_prom <-pairwise_termsim(GO_prom)
+p3 <- emapplot(GO_prom,legend_n=3,cex_line=0.1,cex_label_category=0.75,layout="nicely",cex_category=0.8,showCategory=12,pie="count")+scale_fill_manual(values=c("#70305A","#F7AB64", "#85CEE4","#BFE1D7"))
+ggsave("/path/to/figures/SupFigureS2_GO_diff_peaks_prom.pdf",p3,height=8,width=8)
+
+# GO distal peaks
+genes_dist = lapply(peakAnno_dist, function(i) as.data.frame(i)$geneId)
+names(genes_dist) = c("OPC","Oligodendrocyte","Astrocyte","Microglia","GABAergic_D1MSN","GABAergic_D2MSN","GABAergic_PTHLH_PVALB","GABAergic_CALB2","GABAergic_D1MSN_ADARB2")       
+GO_dist <- compareCluster(geneCluster   = genes_dist,
+                         fun           = "enrichGO",
+                         pvalueCutoff  = 0.05,
+                         OrgDb=org.Hs.eg.db)
+GO_dist <-pairwise_termsim(GO_dist)
+p3_1 <- emapplot(GO_dist,legend_n=3,cex_line=0.1,cex_label_category=0.75,layout="nicely",cex_category=0.8,showCategory=12,pie="count")+scale_fill_manual(values=c("#E8326D","#F7AB64", "#74BA59","#3A9BCC","#D1BCDC","#003E65"))
+ggsave("/path/to/figures/SupFigureS2_GO_diff_peaks_dist.pdf",p3_1,height=8,width=8)
+
+```
+
+
+
+# save data
+```{r save Object, echo=FALSE}
+saveRDS(seurat, "/path/to/data/5_post_DE.rds")
+```

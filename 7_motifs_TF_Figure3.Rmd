@@ -1,0 +1,490 @@
+---
+title: "motifs"
+author: "Lea Zillich"
+date: "7/23/2024"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(Seurat)
+library(SeuratObject)
+library(tidyr)
+library(ggplot2)
+library(BSgenome.Hsapiens.UCSC.hg38)
+library(Signac)
+library(data.table)
+#library(enrichR)
+library(presto)
+library(ggpubr)
+library(ComplexHeatmap)
+library(viridis)
+```
+
+# Import data
+```{r importObject, echo=FALSE}
+seurat <- readRDS("/path/to/data/5_post_DE.rds")
+```
+
+
+# Motif analysis in chromVar - Figure 3 
+```{r chromVar,warning=FALSE, message=FALSE, results='hide'}
+#seurat <- RunChromVAR(seurat, genome=BSgenome.Hsapiens.UCSC.hg38,verbose=T,assay = "ATAC")
+#saveRDS(seurat,"/path/to/data/7_chromVar.rds")
+seurat <- readRDS("/path/to/data/7_chromVar.rds")
+DefaultAssay(seurat) <- "chromvar"
+Idents(seurat) <- "celltypes"
+
+# Create heatmap with z-scores for all clusters
+avg<- AverageExpression(seurat,slot="data",return.seurat = T)
+z_scaled <- as.matrix(avg@assays$chromvar@scale.data)
+z_scaled <- z_scaled[,-c(6,10,12,13)]
+
+# Match motif names
+motif_names <- as.data.frame(t(as.data.frame(seurat@assays$ATAC@motifs@motif.names)))
+identical(rownames(motif_names),rownames(z_scaled)) #TRUE
+rownames(z_scaled) <- motif_names$V1
+
+# Get top 3 down and upregulated motifs for each celltype 
+top_chromVAR_motifs <- rep("",times=18)
+
+j <- 1
+for(i in colnames(z_scaled)){
+  top_chromVAR_motifs[c(j,j+1)] <- names(head(sort(z_scaled[,i]),2))
+  top_chromVAR_motifs[c(j+2,j+3)] <- names(tail(sort(z_scaled[,i]),2))
+  j <- j+4
+}
+
+# color coding
+names(top_chromVAR_motifs) <- rep(c(rep("#440154FF",times=2),rep("#DCE318FF",times=2)),times=9)
+
+#reorder the rows to match with annotation labels
+rows <- row_order(Heatmap(z_scaled,name="z-score",column_names_gp  = gpar(fontsize=8),column_names_rot = 45))
+z_scaled <- z_scaled[rows,]
+
+lab2 <- rownames(z_scaled)
+lab2[!(lab2 %in% unname(top_chromVAR_motifs))] <- ""
+
+# reorder motif vector for correct colors
+col_reordered <- names(top_chromVAR_motifs)[match(lab2[lab2!=""],unname(top_chromVAR_motifs))]
+
+#plot heatmap 
+pdf("/path/to/figures/Figure3_Heatmap_chromVAR.pdf",width=5,height=8)
+Heatmap(z_scaled,name="z-score",column_names_gp  = gpar(fontsize=6),column_names_rot = 45,cluster_rows = T,col=viridis(20))+ rowAnnotation(link = anno_mark(at = which(rownames(z_scaled)==lab2), 
+        labels = lab2[lab2!=""],padding = unit(1, "mm"),link_gp = gpar(lwd = 0.1) ,labels_gp = gpar(fontsize = 8,col=col_reordered)))
+dev.off()
+
+
+# Plot motif expression of top motifs 
+z1 <- FeaturePlot(seurat,feature=rownames(motif_names)[motif_names$V1 == "TLX2"],cols=viridis(10))+ggtitle("MA1577.1 - TLX2")
+z2 <- FeaturePlot(seurat,feature=rownames(motif_names)[motif_names$V1 == "PBX3"],cols=viridis(10))+ggtitle("MA1114.1 - PBX3")
+z3 <- FeaturePlot(seurat,feature=rownames(motif_names)[motif_names$V1 == "SPI1"],cols=viridis(10))+ggtitle("MA0080.5 - SPI1")
+ggsave("/path/to/figures/Figure3_chromVarFeature_TLX2.pdf",z1,width=7,height=6)
+ggsave("/path/to/figures/Figure3_chromVarFeature_PBX3.pdf",z2,width=7,height=6)
+ggsave("/path/to/figures/Figure3_chromVarFeature_SPI1.pdf",z3,width=7,height=6)
+
+# Plot Motifs
+motif<- Motifs(seurat)
+p_mot <-MotifPlot(seurat, motifs = c("MA0798.2","MA0103.3","MA0593.1","MA1643.1"),ncol=4)
+ggsave("/path/to/figures/Figure3_chromVarMotifs.pdf",p_mot,width=16,height=3)
+
+# Plot TF expression in FeaturePlot
+fplot <- FeaturePlot(seurat,feature=c("RFX3","ZEB1","FOXP2","NFIB"),ncol=4)
+ggsave("/path/to/figures/Figure2/chromVarMotifs_TF_Expr.pdf",fplot,width=16,height=4)
+
+# Calculate differential motif activity with CUD/Ctrl status
+
+#seurat@meta.data$cluster_condition <- paste0(seurat@meta.data$CUD,"_",seurat@meta.data$celltypes)
+Idents(seurat) <- "cluster_condition"
+
+# Perform differential motif analysis
+for(i in unique(seurat@meta.data$celltypes)){
+  diff.motfs <- FindMarkers(seurat,
+                            ident.1=paste0("CocUD_",i),
+                            ident.2=paste0("Ctrl_",i),
+                            mean.fxn=rowMeans,
+                            fc.name="avg_diff",
+                            min.pct = 0,
+                            logfc.threshold = 0)
+write.table(diff.motfs,paste0("/path/to/results/chromVar/Motif_Enrichment_cluster_",i,".txt"),sep=";",quote=F)
+}
+
+# Extract top 10 (5 up/5 down) enriched Motifs per celltype for a motif enrichment heatmap
+OPC_motifs <- read.csv("/path/to/results/chromVar/Motif_Enrichment_cluster_OPC.txt", row.names=1, sep=";")
+OPC_motifs$motif <- rownames(OPC_motifs)
+OPC_motifs <- OPC_motifs[match(rownames(motif_names),OPC_motifs$motif),]
+rownames(OPC_motifs) <- motif_names$V1
+top_OPC_motifs <- OPC_motifs[order(OPC_motifs$avg_diff,decreasing = T),c("motif","avg_diff","p_val_adj")]
+top_OPC_motifs <-top_OPC_motifs[top_OPC_motifs$p_val_adj <0.05,]
+top_OPC_motifs_up <-  head(top_OPC_motifs,5)
+top_OPC_motifs_down <-  tail(top_OPC_motifs,5)
+
+Oligodendrocyte_motifs <- read.csv("/path/to/results/chromVar/Motif_Enrichment_cluster_Oligodendrocyte.txt", row.names=1, sep=";")
+Oligodendrocyte_motifs$motif <- rownames(Oligodendrocyte_motifs)
+Oligodendrocyte_motifs <- Oligodendrocyte_motifs[match(rownames(motif_names),Oligodendrocyte_motifs$motif),]
+rownames(Oligodendrocyte_motifs) <- motif_names$V1
+top_Oligodendrocyte_motifs <- Oligodendrocyte_motifs[order(Oligodendrocyte_motifs$avg_diff,decreasing = T),c("motif","avg_diff","p_val_adj")]
+top_Oligodendrocyte_motifs <-top_Oligodendrocyte_motifs[top_Oligodendrocyte_motifs$p_val_adj <0.05,]
+top_Oligodendrocyte_motifs_up <-  head(top_Oligodendrocyte_motifs,5)
+top_Oligodendrocyte_motifs_down <-  tail(top_Oligodendrocyte_motifs,5)
+
+D1MSN_motifs <- read.csv("/path/to/results/chromVar/Motif_Enrichment_cluster_GABAergic - D1 MSN.txt", row.names=1, sep=";")
+D1MSN_motifs$motif <- rownames(D1MSN_motifs)
+D1MSN_motifs <- D1MSN_motifs[match(rownames(motif_names),D1MSN_motifs$motif),]
+rownames(D1MSN_motifs) <- motif_names$V1
+top_D1MSN_motifs <- D1MSN_motifs[order(D1MSN_motifs$avg_diff,decreasing = T),c("motif","avg_diff","p_val_adj")]
+top_D1MSN_motifs <-top_D1MSN_motifs[top_D1MSN_motifs$p_val_adj <0.05,]
+top_D1MSN_motifs_up <-  head(top_D1MSN_motifs,5)
+top_D1MSN_motifs_down <-  tail(top_D1MSN_motifs,5)
+
+D1MSN_ADARB2_motifs <- read.csv("/path/to/results/chromVar/Motif_Enrichment_cluster_GABAergic - D1 MSN ADARB2.txt", row.names=1, sep=";")
+D1MSN_ADARB2_motifs$motif <- rownames(D1MSN_ADARB2_motifs)
+D1MSN_ADARB2_motifs <- D1MSN_ADARB2_motifs[match(rownames(motif_names),D1MSN_ADARB2_motifs$motif),]
+rownames(D1MSN_ADARB2_motifs) <- motif_names$V1
+top_D1MSN_ADARB2_motifs <- D1MSN_ADARB2_motifs[order(D1MSN_ADARB2_motifs$avg_diff,decreasing = T),c("motif","avg_diff","p_val_adj")]
+top_D1MSN_ADARB2_motifs <-top_D1MSN_ADARB2_motifs[top_D1MSN_ADARB2_motifs$p_val_adj <0.05,]
+top_D1MSN_ADARB2_motifs_up <-  head(top_D1MSN_ADARB2_motifs,5)
+top_D1MSN_ADARB2_motifs_down <-  tail(top_D1MSN_ADARB2_motifs,5)
+
+GABAergic_CALB2_motifs <- read.csv("/path/to/results/chromVar/Motif_Enrichment_cluster_GABAergic - CALB2.txt", row.names=1, sep=";")
+GABAergic_CALB2_motifs$motif <- rownames(GABAergic_CALB2_motifs)
+GABAergic_CALB2_motifs <- GABAergic_CALB2_motifs[match(rownames(motif_names),GABAergic_CALB2_motifs$motif),]
+rownames(GABAergic_CALB2_motifs) <- motif_names$V1
+top_GABAergic_CALB2_motifs <- GABAergic_CALB2_motifs[order(GABAergic_CALB2_motifs$avg_diff,decreasing = T),c("motif","avg_diff","p_val_adj")]
+top_GABAergic_CALB2_motifs <-top_GABAergic_CALB2_motifs[top_GABAergic_CALB2_motifs$p_val_adj <0.05,]
+top_GABAergic_CALB2_motifs_up <-  head(top_GABAergic_CALB2_motifs,5)
+top_GABAergic_CALB2_motifs_down <-  tail(top_GABAergic_CALB2_motifs,5)
+
+D2MSN_motifs <- read.csv("/path/to/results/chromVar/Motif_Enrichment_cluster_GABAergic - D2 MSN.txt", row.names=1, sep=";")
+D2MSN_motifs$motif <- rownames(D2MSN_motifs)
+D2MSN_motifs <- D2MSN_motifs[match(rownames(motif_names),D2MSN_motifs$motif),]
+rownames(D2MSN_motifs) <- motif_names$V1
+top_D2MSN_motifs <- D2MSN_motifs[order(D2MSN_motifs$avg_diff,decreasing = T),c("motif","avg_diff","p_val_adj")]
+top_D2MSN_motifs <-top_D2MSN_motifs[top_D2MSN_motifs$p_val_adj <0.05,]
+top_D2MSN_motifs_up <-  head(top_D2MSN_motifs,5)
+top_D2MSN_motifs_down <-  tail(top_D2MSN_motifs,5)
+
+GABAergic_PTHLH_PVALB_motifs <- read.csv("/path/to/results/chromVar/Motif_Enrichment_cluster_GABAergic - PTHLH PVALB.txt", row.names=1, sep=";")
+GABAergic_PTHLH_PVALB_motifs$motif <- rownames(GABAergic_PTHLH_PVALB_motifs)
+GABAergic_PTHLH_PVALB_motifs <- GABAergic_PTHLH_PVALB_motifs[match(rownames(motif_names),GABAergic_PTHLH_PVALB_motifs$motif),]
+rownames(GABAergic_PTHLH_PVALB_motifs) <- motif_names$V1
+top_GABAergic_PTHLH_PVALB_motifs <- GABAergic_PTHLH_PVALB_motifs[order(GABAergic_PTHLH_PVALB_motifs$avg_diff,decreasing = T),c("motif","avg_diff","p_val_adj")]
+top_GABAergic_PTHLH_PVALB_motifs <-top_GABAergic_PTHLH_PVALB_motifs[top_GABAergic_PTHLH_PVALB_motifs$p_val_adj <0.05,]
+top_GABAergic_PTHLH_PVALB_motifs_up <-  head(top_GABAergic_PTHLH_PVALB_motifs,5)
+top_GABAergic_PTHLH_PVALB_motifs_down <-  tail(top_GABAergic_PTHLH_PVALB_motifs,5)
+
+Microglia_motifs <- read.csv("/path/to/results/chromVar/Motif_Enrichment_cluster_Microglia.txt", row.names=1, sep=";")
+Microglia_motifs$motif <- rownames(Microglia_motifs)
+Microglia_motifs <- Microglia_motifs[match(rownames(motif_names),Microglia_motifs$motif),]
+rownames(Microglia_motifs) <- motif_names$V1
+top_Microglia_motifs <- Microglia_motifs[order(Microglia_motifs$avg_diff,decreasing = T),c("motif","avg_diff","p_val_adj")]
+top_Microglia_motifs <-top_Microglia_motifs[top_Microglia_motifs$p_val_adj <0.05,]
+top_Microglia_motifs_up <-  head(top_Microglia_motifs,5)
+top_Microglia_motifs_down <-  tail(top_Microglia_motifs,5)
+
+Astrocyte_motifs <- read.csv("/path/to/results/chromVar/Motif_Enrichment_cluster_Astrocyte.txt", row.names=1, sep=";")
+Astrocyte_motifs$motif <- rownames(Astrocyte_motifs)
+Astrocyte_motifs <- Astrocyte_motifs[match(rownames(motif_names),Astrocyte_motifs$motif),]
+rownames(Astrocyte_motifs) <- motif_names$V1
+top_Astrocyte_motifs <- Astrocyte_motifs[order(Astrocyte_motifs$avg_diff,decreasing = T),c("motif","avg_diff","p_val_adj")]
+top_Astrocyte_motifs <-top_Astrocyte_motifs[top_Astrocyte_motifs$p_val_adj <0.05,]
+top_Astrocyte_motifs_up <-  head(top_Astrocyte_motifs,5)
+top_Astrocyte_motifs_down <-  tail(top_Astrocyte_motifs,5)
+
+motifs_up <- c(rownames(top_Astrocyte_motifs_up),rownames(top_Microglia_motifs_up),rownames(top_OPC_motifs_up),rownames(top_GABAergic_PTHLH_PVALB_motifs_up),rownames(top_D2MSN_motifs_up),rownames(top_GABAergic_CALB2_motifs_up),rownames(top_D1MSN_motifs_up),rownames(top_Oligodendrocyte_motifs_up),rownames(top_D1MSN_ADARB2_motifs_up))
+
+motifs_down <- c(rownames(top_Astrocyte_motifs_down),rownames(top_Microglia_motifs_down),rownames(top_OPC_motifs_down),rownames(top_GABAergic_PTHLH_PVALB_motifs_down),rownames(top_D2MSN_motifs_down),rownames(top_GABAergic_CALB2_motifs_down),rownames(top_D1MSN_motifs_down),rownames(top_Oligodendrocyte_motifs_down),rownames(top_D1MSN_ADARB2_motifs_down))
+
+
+length(unique(c(motifs_up,motifs_down))) # 43
+
+motif_df <- data.frame(OPC=rep(0,times=43),Oligodendrocyte=rep(0,times=43),Microglia=rep(0,times=43),Astrocyte=rep(0,times=43),GABAergic_PTHLH_PVALB=rep(0,times=43),GABAergic_CALB2=rep(0,times=43),D1MSN=rep(0,times=43),D2MSN=rep(0,times=43),D1MSN_ADARB2=rep(0,times=43))
+
+pval_df <- data.frame(OPC=rep(0,times=43),Oligodendrocyte=rep(0,times=43),Microglia=rep(0,times=43),Astrocyte=rep(0,times=43),GABAergic_PTHLH_PVALB=rep(0,times=43),GABAergic_CALB2=rep(0,times=43),D1MSN=rep(0,times=43),D2MSN=rep(0,times=43),D1MSN_ADARB2=rep(0,times=43))
+
+rownames(motif_df) <- unique(c(motifs_up,motifs_down))
+rownames(pval_df) <- unique(c(motifs_up,motifs_down))
+
+# motifs 
+for(i in 1:43){
+  for(j in c("OPC","Oligodendrocyte","D1MSN","D1MSN_ADARB2","GABAergic_CALB2","D2MSN","GABAergic_PTHLH_PVALB","Microglia","Astrocyte")){
+    k <- get(paste0(j,"_motifs"))
+    motif_df[i,j] <- k[,"avg_diff"][rownames(k) == rownames(motif_df)[i]]
+  }
+}
+
+#pvals
+for(i in 1:43){
+  for(j in c("OPC","Oligodendrocyte","D1MSN","D1MSN_ADARB2","GABAergic_CALB2","D2MSN","GABAergic_PTHLH_PVALB","Microglia","Astrocyte")){
+    k <- get(paste0(j,"_motifs"))
+   pval_df[i,j] <- k[,"p_val_adj"][rownames(k) == rownames(pval_df)[i]]
+  }
+}
+
+motif_mat <- as.matrix(motif_df)
+pval_mat <- as.matrix(pval_df)
+
+# create pval stars for labeling
+stars_gen <- function(x){
+  stars <- c( "***", "**", "*","")
+  vec <- c(0, 0.001, 0.01, 0.05,1.01)
+  i <- findInterval(x, vec)
+  stars[i]
+}
+
+for(i in colnames(pval_mat)){
+pval_mat[,i] <- stars_gen(pval_mat[,i])}
+pval_mat <- as.matrix(pval_mat)
+
+library(viridis)
+library(colorRamp2)
+fc <- colorRamp2(c(-2,0,2),c("blue","white","red"))
+# Plot the heatmap
+pdf("/path/to/figures/Figure3_Heatmap_chromVAR_CUD.pdf",width=6,height=16)
+pheatmap(motif_mat, breaks=seq(-3, 3, length.out=10),color =fc(seq(-5,5)),cluster_rows = T,cluster_cols = T,fontsize = 12,display_numbers = pval_mat,number_color="black",angle_col = "45",cellwidth = 20,cellheight = 20)
+dev.off()
+
+# Plot differential expression of the TFs for which differential motif accessibility was detected in CUD 
+# Import DE results 
+OPC <- read.csv("/path/to/results/DE/FindMarkers/clusterOPC.csv")
+Oligodendrocyte <- read.csv("/path/to/results/DE/FindMarkers/clusterOligodendrocyte.csv")
+Astrocyte <- read.csv("/path/to/results/DE/FindMarkers/clusterAstrocyte.csv")
+Microglia <- read.csv("/path/to/results/DE/FindMarkers/clusterMicroglia.csv")
+GABAergic_PTHLH_PVALB <- read.csv("/path/to/results/DE/FindMarkers/clusterGABAergic - PTHLH PVALB.csv")
+D2MSN <- read.csv("/path/to/results/DE/FindMarkers/clusterGABAergic - D2 MSN.csv")
+D1MSN_ADARB2 <- read.csv("/path/to/results/DE/FindMarkers/clusterGABAergic - D1 MSN ADARB2.csv")
+D1MSN <- read.csv("/path/to/results/DE/FindMarkers/clusterGABAergic - D1 MSN.csv")
+GABA_CALB2 <- read.csv("/path/to/results/DE/FindMarkers/clusterGABAergic - CALB2.csv")
+
+
+# Obtain log2FCs and padj for each cluster 
+OPC <- OPC[,c("X","avg_log2FC","p_val_adj")]
+colnames(OPC)[c(2,3)] <- paste0(colnames(OPC)[c(2,3)],"_OPC")
+
+Oligodendrocyte <- Oligodendrocyte[,c("X","avg_log2FC","p_val_adj")]
+colnames(Oligodendrocyte)[c(2,3)] <- paste0(colnames(Oligodendrocyte)[c(2,3)],"_Oligodendrocyte")
+
+Astrocyte <- Astrocyte[,c("X","avg_log2FC","p_val_adj")]
+colnames(Astrocyte)[c(2,3)] <- paste0(colnames(Astrocyte)[c(2,3)],"_Astrocyte")
+
+Microglia <- Microglia[,c("X","avg_log2FC","p_val_adj")]
+colnames(Microglia)[c(2,3)] <- paste0(colnames(Microglia)[c(2,3)],"_Microglia")
+
+D1MSN <- D1MSN[,c("X","avg_log2FC","p_val_adj")]
+colnames(D1MSN)[c(2,3)] <- paste0(colnames(D1MSN)[c(2,3)],"_D1MSN")
+
+D2MSN <- D2MSN[,c("X","avg_log2FC","p_val_adj")]
+colnames(D2MSN)[c(2,3)] <- paste0(colnames(D2MSN)[c(2,3)],"_D2MSN")
+
+
+GABAergic_PTHLH_PVALB <- GABAergic_PTHLH_PVALB[,c("X","avg_log2FC","p_val_adj")]
+colnames(GABAergic_PTHLH_PVALB)[c(2,3)] <- paste0(colnames(GABAergic_PTHLH_PVALB)[c(2,3)],"_GABAergic_PTHLH_PVALB")
+
+GABA_CALB2 <- GABA_CALB2[,c("X","avg_log2FC","p_val_adj")]
+colnames(GABA_CALB2)[c(2,3)] <- paste0(colnames(GABA_CALB2)[c(2,3)],"_GABA_CALB2")
+
+D1MSN_ADARB2 <- D1MSN_ADARB2[,c("X","avg_log2FC","p_val_adj")]
+colnames(D1MSN_ADARB2)[c(2,3)] <- paste0(colnames(D1MSN_ADARB2)[c(2,3)],"_D1MSN_ADARB2")
+
+# merge dfs
+library(tidyverse)
+dfs<-list(OPC,Oligodendrocyte,Astrocyte,Microglia,D1MSN,D2MSN,GABAergic_PTHLH_PVALB,GABA_CALB2,D1MSN_ADARB2) %>% reduce(inner_join,by="X")
+dfs_l2FC <- dfs[,c(1,2,4,6,8,10,12,14,16,18)]
+dfs_p <- dfs[,c(1,3,5,7,9,11,13,15,17,19)]
+colnames(dfs_l2FC) <- gsub("avg_log2FC_","",colnames(dfs_l2FC))
+rownames(dfs_l2FC) <- dfs_l2FC$X
+colnames(dfs_p) <- gsub("p_val_adj_","",colnames(dfs_p))
+rownames(dfs_p) <- dfs_p$X
+dfs_l2FC <- dfs_l2FC[,-1]
+dfs_p <- dfs_p[,-1]
+
+# gene name vector
+
+plot_genes <- c("RFX1","RFX3","RFX4","RFX2","RFX5","MEF2B","SNAI1","ZEB1","TCF3","TCF12","GABPA","EHF","SPIC","SPI1","SPIB","TLX2","GSX1","LHX9","ISX","RAX2","CTCFL","IRF3","MYOG","MYF5","FOXP2","CTCF","NFIC","NFIX","NFIB","BATF","JUN","FOSL1","JUNB","FOSL2","FOS","JUND","SOX8","SOX13","SOX2","SOX4","SOX15")
+
+# Create log2FC hms
+hm_motif_tf_genes <- dfs_l2FC[rownames(dfs_l2FC) %in% plot_genes,]
+ hm_motif_tf_genes <- as.matrix(hm_motif_tf_genes[match(plot_genes,rownames(hm_motif_tf_genes)),])
+ hm_motif_tf_genes <-  hm_motif_tf_genes[,c("D1MSN_ADARB2","D1MSN","D2MSN","Astrocyte","GABAergic_PTHLH_PVALB","GABA_CALB2","Microglia","OPC","Oligodendrocyte")]
+
+## Create pval hms
+ 
+ makeStars <- function(x){
+  stars <- c( "***", "**", "*","")
+  vec <- c(0, 0.001, 0.01, 0.05,1.01)
+  i <- findInterval(x, vec)
+  stars[i]
+ }
+ 
+hm_motif_tf_genes_p <- dfs_p[rownames(dfs_p) %in% plot_genes,]
+ hm_motif_tf_genes_p <- as.matrix(hm_motif_tf_genes_p[match(plot_genes,rownames(hm_motif_tf_genes_p)),])
+  hm_motif_tf_genes_p <-  hm_motif_tf_genes_p[,c("D1MSN_ADARB2","D1MSN","D2MSN","Astrocyte","GABAergic_PTHLH_PVALB","GABA_CALB2","Microglia","OPC","Oligodendrocyte")]
+ 
+  hm_motif_tf_genes_star <-  t(apply(hm_motif_tf_genes_p,1,makeStars))
+colnames(hm_motif_tf_genes_star) <-  colnames(hm_motif_tf_genes_p)
+
+library(RColorBrewer)
+library(pheatmap)
+
+pdf("/path/to/figures/Figure3_log2FC_heatmap_tf.pdf",width=6,height=14)
+pheatmap(hm_motif_tf_genes, breaks=seq(-1, 1, length.out=100),color = colorRampPalette(c("blue","white","red"))(100),cluster_rows = F,cluster_cols = F,fontsize = 12,display_numbers = hm_motif_tf_genes_star,number_color="black",angle_col = 45,cellwidth = 20,cellheight = 20,main = "TF log2FC")
+dev.off()
+
+
+```
+
+
+# Links overview heatmap - Figure 3A
+```{r links1,warning=FALSE, message=FALSE, results='hide'}
+# Identify links in CUD and Ctrl samples individually, then identifiy specific or shared links 
+
+Idents(seurat) <- "CUD"
+seurat_CUD <- subset(seurat,idents=c("CUD"))
+seurat_Ctrl <- subset(seurat,idents=c("Ctrl"))
+
+DefaultAssay(seurat_CUD)<-"ATAC"
+DefaultAssay(seurat_Ctrl)<-"ATAC"
+ 
+#  seurat_CUD <- RegionStats(seurat_CUD,genome=BSgenome.Hsapiens.UCSC.hg38)
+#  seurat_CUD <- LinkPeaks(seurat_CUD, peak.assay = "ATAC",expression.assay = "RNA",verbose = T)
+#  saveRDS(seurat_CUD,"/path/to/data/9a_CUD_links.rds")
+#  seurat_Ctrl <- RegionStats(seurat_Ctrl,genome=BSgenome.Hsapiens.UCSC.hg38)
+#  seurat_Ctrl <- LinkPeaks(seurat_Ctrl, peak.assay = "ATAC",expression.assay = "RNA",verbose = T)
+#  saveRDS(seurat_Ctrl,"/path/to/data/9a_Ctrl_links.rds")
+
+seurat_CUD<- readRDS("/path/to/data/9a_CUD_links.rds")
+seurat_Ctrl<- readRDS("/path/to/data/9a_Ctrl_links.rds")
+
+links_CUD <- as.data.frame(Links(seurat_CUD))
+#write.csv(links_CUD, "/path/to/results/DAc/Links_CUD.csv", row.names = F)
+links_Ctrl <- as.data.frame(Links(seurat_Ctrl))
+#write.csv(links_Ctrl, "/path/to/results/DAc/Links_Ctrl.csv", row.names = F)
+
+links_CUD <- links_CUD[,c(1,7,8,2:6,9:10)]
+links_Ctrl <- links_Ctrl[,c(1,7,8,2:6,9:10)]
+colnames(links_CUD)[4:10]<-paste0(colnames(links_CUD)[4:10],"_CUD")
+colnames(links_Ctrl)[4:10]<-paste0(colnames(links_Ctrl)[4:10],"_Ctrl")
+
+links_all <- merge(links_CUD,links_Ctrl,by=c("seqnames","gene","peak"),all=T)
+links_all$status <- ifelse(is.na(links_all$score_CUD)==T,"Ctrl",ifelse(is.na(links_all$score_Ctrl)==T,"CUD","common"))
+
+# Filter for links with at least absolute correlation of 0.1
+links_all_CUD <-links_all[links_all$status=="CUD",]
+links_all_CUD <- links_all_CUD[abs(links_all_CUD$score_CUD)>0.1,]
+links_all_Ctrl <-  links_all[links_all$status=="Ctrl",]
+links_all_Ctrl <- links_all_Ctrl[abs(links_all_Ctrl$score_Ctrl)>0.1,]
+links_all_common <- links_all[links_all$status=="common",]
+links_all_common <- links_all_common[abs(links_all_common$score_CUD)>0.1 & abs(links_all_common$score_Ctrl)>0.1,]
+
+links_combined <- rbind(links_all_CUD,links_all_Ctrl,links_all_common)
+
+
+# 1)  DAc CUD vs. Ctrl. over the full object
+#Idents(seurat) <- "CUD"
+#DefaultAssay(seurat) <- "ATAC"
+#DAc <- FindMarkers(seurat,ident.1 = "CUD", ident.2 = "Ctrl",assay = "ATAC",test.use = "LR",latent.vars = "nFeature_ATAC",logfc.threshold = 0,min.pct =0.02)
+#write.csv(DAc, "/path/to/results/DAc/DAc_links/DAc_CUD_vs_Ctrl_for_links.csv", row.names = T)
+
+DAc <- read.csv("/path/to/results/DAc/DAc_links/DAc_CUD_vs_Ctrl_for_links.csv")
+
+# 2) Filter for significant associations with positive or negative log2FC and padj<0.05
+
+DAc <- DAc[DAc$p_val_adj<0.05,]
+DAc$status <- ""
+DAc$status[DAc$avg_log2FC > 0] <- "CUD"
+DAc$status[DAc$avg_log2FC < 0] <- "Ctrl"
+
+# 3) Extract links for the remaining peakset
+
+links_combined_DAc <- links_combined[links_combined$peak %in% DAc$X,]
+
+# # 4) Filter out the strongest correlating link for each gene
+# 
+# # create df to store in 
+# length(unique(links_combined_DAc$gene))#2083
+# links_df2 <- as.data.frame(matrix(ncol=18,nrow=2083))
+# colnames(links_df2) <- colnames(links_combined_DAc)
+# rownames(links_df2) <- unique(links_combined_DAc$gene)
+# 
+# # extract highest correlation 
+# for(i in unique(links_combined_DAc$gene)){
+#   links_gene <- links_combined_DAc[links_combined_DAc[,"gene"] == i,]
+#   scores <- c(links_gene$score_CUD,links_gene$score_Ctrl)
+#   max_score <- max(abs(scores))
+#   
+#   links_df2[i,] <- links_gene[abs(links_gene[,"score_CUD"]) == max_score,] | abs(links_gene[,"score_CUD"]) == max_score ,]
+# }
+
+# Add info on CUD/Ctrl based on log2FC
+
+# links_df2$status <- ""
+# for(i in links_df2$peak){
+# links_df2[,"status"][links_df2[,"peak"] == i] <-  DAc[,"status"][DAc[,"X"] == i]
+# }
+
+
+# 5) Plot heatmap with expression z scores of peaks and genes for the set of CUD/Ctrl specific links
+Idents(seurat) <- "celltypes"
+seurat <- ScaleData(seurat,assay = "ATAC")
+
+acc<-as.data.frame(AverageExpression(seurat, group.by=c("celltypes","CUD"),assay="ATAC"))
+acc <- acc[links_combined_DAc$peak,]
+gex<-as.data.frame(AverageExpression(seurat, group.by=c("celltypes","CUD"), assay="RNA"))
+gex <- gex[links_combined_DAc$gene,]
+
+acc<-acc[,-c(3:6,9,10,19,20)]
+gex<-gex[,-c(3:6,9,10,19,20)]
+
+acc.scale<-t(apply(acc,1, scale))
+gex.scale<-t(apply(gex,1,scale))
+colnames(acc.scale)<-colnames(acc)
+colnames(gex.scale)<-colnames(gex)
+
+acc.scale<-acc.scale[complete.cases(gex.scale),]
+gex.scale<-gex.scale[complete.cases(gex.scale),]
+
+links_df2_gene <-links_combined_DAc[which(links_combined_DAc$gene %in% gsub("[.].$","",rownames(gex.scale))),]
+links_df2_peak <-links_combined_DAc[which(links_combined_DAc$peak %in% rownames(acc.scale)),]
+
+links_df2_gene$status <- factor(links_df2_gene$status,levels=c("CUD","common","Ctrl"))
+links_df2_peak$status <- factor(links_df2_peak$status,levels=c("CUD","common","Ctrl"))
+
+ha2<-HeatmapAnnotation(cluster=rep(c("GABAergic - PTHLH PVALB", "GABAergic - CALB2", "GABAergic - D1 MSN ADARB2", "GABAergic - D2 MSN", "GABAergic - D1 MSN","OPC","Oligodendrocyte","Microglia","Astrocyte"), each=2), col= list(cluster=c("Astrocyte"="#F7AB64","Microglia"="#74BA59","Oligodendrocyte"="#70305A","OPC"="#E8326D", "GABAergic - D1 MSN"="#3A9BCC","GABAergic - D2 MSN"="#85CEE4","GABAergic - D1 MSN ADARB2"="#003E65",  "GABAergic - CALB2"= "#BFE1D7","GABAergic - PTHLH PVALB" ="#D1BCDC")), show_legend=T)
+ha<-HeatmapAnnotation(Status=rep(c("Ctrl","CUD"), 9), col=list(Status=c("CUD"="grey30","Ctrl"="grey60")), show_legend=T)
+ha<-c(ha,ha2)
+
+ra<-rowAnnotation(Specificity=links_df2_gene$status, col=list(Specificity=c("CUD"="red","common"="brown","Ctrl"="blue")))
+library(circlize)
+library(viridis)
+ht1=Heatmap(acc.scale, cluster_rows=T,show_row_dend=F,cluster_columns=F,col=colorRamp2(c(quantile(acc.scale, probs=0.05),0,2), viridis(3)), name="Accessibility Z",  show_column_names=F, show_row_names=F, column_title=NULL, top_annotation=ha,  row_dend_reorder=T, use_raster=T,raster_quality=5,row_split=links_df2_peak$status)
+
+ht2=Heatmap(gex.scale, cluster_rows=F,show_row_dend=F,cluster_columns=F,col=colorRamp2(c(quantile(gex.scale, probs=0.05, na.rm=T),0,quantile(gex.scale, probs=0.95, na.rm=T)),plasma(3)), name="Expression  Z",  show_column_names=F, show_row_names=F, column_title=NULL,row_names_gp = gpar(fontsize = 3), top_annotation=ha, right_annotation=ra,  row_title_gp=gpar(fontsize=0), use_raster=T, raster_quality=5)
+
+pdf("/path/to/figures/Figure3_Links_heatmap.pdf",height=8,width=12)
+ht1+ht2
+dev.off()
+
+# How many specific and shared links?
+table(links_combined_DAc$status)
+#common   Ctrl    CUD 
+#  3624   1159    821 
+
+# get genes with links in CUD and Ctrl specific links 
+CUD_genes <- unique(links_combined_DAc$gene[links_combined_DAc$status=="CUD"])"-log10(p.adjust)")
+Ctrl_genes <- unique(links_combined_DAc$gene[links_combined_DAc$status=="Ctrl"])
+common_genes <- unique(links_combined_DAc$gene[links_combined_DAc$status=="common"])
+
+library(VennDiagram)
+venn.diagram(list(common=common_genes,CUD = CUD_genes,Ctrl = Ctrl_genes),filename="/path/to/figures/Figure2/Link_genes.png", imagetype = "png",fill=c("brown","red","blue"),width=5,height=5,units="in",resolution=600)
+
+# Get the genes that have links only in CUD 
+library(clusterProfiler)
+library(org.Hs.eg.db)
+library(enrichplot)
+CUD_links_only <- CUD_genes[!(CUD_genes %in% c(common_genes,Ctrl_genes))]
+
+CUD_links_only_GO <- enrichGO(CUD_links_only,OrgDb = org.Hs.eg.db,keyType = "SYMBOL",pvalueCutoff=0.05,ont="ALL")
+CUD_links_only_GO <- pairwise_termsim(CUD_links_only_GO)
+p1 <- emapplot(CUD_links_only_GO ,legend_n=3,cex_line=0.1,cex_label_category=0.75,layout="nicely",cex_category=0.8,showCategory=30,pie="count")+scale_fill_gradient(low = "red", high = "gray60")+xlab("-log10(p.adjust)")
+ggsave("/path/to/figures/Figure3_CUD_only_linked_genes_GO.pdf",p1,height=10,width=8)
+```

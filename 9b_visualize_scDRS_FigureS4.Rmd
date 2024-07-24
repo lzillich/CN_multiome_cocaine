@@ -1,0 +1,70 @@
+---
+title: "Visualize scDRS"
+author: "Eric Zillich"
+date: "12/11/2023"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(readr)
+library(data.table)
+library(dplyr)
+library(RColorBrewer)
+library(ggplot2)
+library(Seurat)
+```
+
+## Import integrated object
+```{r importObject}
+sc <- readRDS(file = "/path/to/data/6_LinkedPeaks.rds")
+DefaultAssay(sc) <- "RNA"
+```
+
+## Import scDRS scores
+```{r importscDRS}
+CUD <- read.table(gzfile("/path/to/results/scDRS/P_CUD.full_score.gz"))
+AUD <- read.table(gzfile("/path/to/results/scDRS/P_AUD.full_score.gz"))
+CanUD <- read.table(gzfile("/path/to/results/scDRS/P_CanUD.full_score.gz"))
+OUD <- read.table(gzfile("/path/to/results/scDRS/P_OUD.full_score.gz"))
+
+
+# remove the few barcodes from the seurat that are not present in scDRS results to enable plotting
+red_CUD <- colnames(sc)[!(colnames(sc) %in% rownames(CUD))]
+sc_plot <- sc[,!colnames(sc) %in% red_CUD]
+
+sc_plot@meta.data$scDRS_CUD <- CUD$norm_score
+sc_plot@meta.data$scDRS_AUD <- AUD$norm_score
+sc_plot@meta.data$scDRS_CanUD <- CanUD$norm_score
+sc_plot@meta.data$scDRS_OUD <- OUD$norm_score
+
+```
+
+## Plot Scores in FeaturePlots
+
+```{r plot UMAP}
+
+# CUD
+library(RColorBrewer)
+Idents(sc_plot) <-"celltypes"
+
+# CUD
+f1 <- FeaturePlot(sc_plot, features = "scDRS_CUD")+ scale_colour_gradientn(colours = rev(brewer.pal(n = 11, name = "RdBu")))+ggtitle("cocaine dependence")+ylab("UMAP2")+xlab("UMAP1")
+
+# AUD
+f2 <- FeaturePlot(sc_plot, features = "scDRS_AUD")+ scale_colour_gradientn(colours = rev(brewer.pal(n = 11, name = "RdBu")))+ggtitle("alcohol dependence")+ylab("UMAP2")+xlab("UMAP1")
+
+# CanUD
+f3 <- FeaturePlot(sc_plot, features = "scDRS_CanUD")+ scale_colour_gradientn(colours = rev(brewer.pal(n = 11, name = "RdBu")))+ggtitle("cannabis use disorder")+ylab("UMAP2")+xlab("UMAP1")
+
+# OUD
+f4 <- FeaturePlot(sc_plot, features = "scDRS_OUD")+ scale_colour_gradientn(colours = rev(brewer.pal(n = 11, name = "RdBu")))+ggtitle("opioid use disorder")+ylab("UMAP2")+xlab("UMAP1")
+
+
+library(ggpubr)
+plots <- ggarrange(f1,f2,f3,f4,nrow = 1,ncol=4)
+ggsave("/path/to/results/scDRS/FeaturePlot_scores_all_SUDs.pdf",plots,width=16,height=4)
+
+
+```
+

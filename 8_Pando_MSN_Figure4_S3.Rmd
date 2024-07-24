@@ -1,0 +1,479 @@
+---
+title: "Pando"
+author: "Lea and Eric Zillich"
+date: "3/22/2024"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+# Load Packages
+library(Pando)
+library(Seurat)
+library(tidyr)
+library(ggplot2)
+library(BSgenome.Hsapiens.UCSC.hg38)
+library(Signac)
+library(data.table)
+```
+
+
+## Import object
+```{r importObject,warning=FALSE, message=FALSE, results='hide'}
+seurat <- readRDS(file = "/path/to/data/6_LinkedPeaks.rds")
+
+D1 <- WhichCells(seurat, idents = c("GABAergic - D1 MSN"))
+D2 <- WhichCells(seurat, idents = c("GABAergic - D2 MSN"))
+
+D_p <- UMAPPlot(seurat, label=F, cells.highlight= list(D1,D2), cols.highlight = c("#3A9BCC","#85CEE4"), sizes.highlight = 0.00001,reduction = "harmony") + NoLegend() +NoAxes()
+ggsave("/path/to/results/Pando/MSN_UMAP_for_Pando.pdf",D_p,width = 3,height=3)
+```
+
+
+## Analysis of GRNs in MSN
+```{r test,warning=FALSE, message=FALSE, results='hide'}
+# Get motif data
+library(JASPAR2020)
+library(TFBSTools)
+data('phastConsElements20Mammals.UCSC.hg38')
+data('SCREEN.ccRE.UCSC.hg38')
+
+Idents(seurat) <- "celltypes"
+MSN <- subset(seurat,idents=c("GABAergic - D1 MSN","GABAergic - D2 MSN"))
+rm(seurat)
+
+pfm <- getMatrixSet(JASPAR2020,
+  opts = list(species = "Homo sapiens"))
+
+#select candidate genes that are expressed in the dataset
+can_genes <- fread("/path/to/results/DE/FindMarkers/clusterGABAergic - D1 MSN.csv") #use gene list of choosing
+
+#read in transcription factors
+tfs <- read.table("/path/to/Multiome_Tutorial/Homo_sapiens_TF.txt", sep="\t", header=T)
+
+
+df_pfm <- data.frame(t(sapply(pfm, function(x)
+  c(id=x@ID, name=x@name, symbol=ifelse(!is.null(x@tags$symbol),x@tags$symbol,x@name))))) # unclear in vignette
+
+
+# Make dataset compatible for the initiate_grn function
+motif2tf_use <- merge(can_genes[,1],df_pfm, by.x="V1",by.y = "name")
+motif2tf_use <-motif2tf_use[!(duplicated(motif2tf_use)),]
+
+motifs_use <- pfm[unique(motif2tf_use$id)]
+
+motif2tf_use <- as.data.frame(motif2tf_use)
+
+colnames(motif2tf_use) <- c("tf" ,"motif" ,  "name")
+motif2tf_use <- motif2tf_use[,c("motif","tf","name")]
+
+# Initiate GRN object and select candidate regions
+
+MSN <- initiate_grn(
+    MSN,
+    rna_assay = 'RNA',
+    peak_assay = "ATAC",
+    regions = union(phastConsElements20Mammals.UCSC.hg38, SCREEN.ccRE.UCSC.hg38)
+)
+
+MSN <- find_motifs(MSN, 
+                         pfm = motifs_use, 
+                         motif_tfs = motif2tf_use,
+                         genome = BSgenome.Hsapiens.UCSC.hg38)
+
+
+# Infer gene regulatory network
+library(doParallel)
+registerDoParallel(20)
+
+MSN<- infer_grn(
+    MSN,method="glm",
+    parallel = T
+)
+
+# Print inferred coefficients
+coef(MSN)
+
+# Find modules
+MSN <- find_modules(
+    MSN, 
+    p_thresh = 0.05,
+    nvar_thresh = 5, 
+    min_genes_per_module = 5, 
+    rsq_thresh = 0.1
+)
+
+# Print modules
+modules <- NetworkModules(MSN)
+meta <-modules@meta
+
+plot_gof(MSN, point_size=3)
+
+plot_module_metrics(MSN)
+
+MSN <- get_network_graph(
+    MSN, 
+    graph_name = 'full_graph', 
+    umap_method = 'none'
+)
+
+p1 <- plot_network_graph(MSN, graph='full_graph', layout='fr', text_size=5)
+ggsave("/path/to/results/Pando/MSN.pdf",p1,width=6,height=6)
+
+```
+
+# Visualize regulon TFs in the UMAP 
+```{r test2,warning=FALSE, message=FALSE, results='hide'}
+library(dplyr)
+
+grn <- MSN@grn@networks$glm_network@coefs 
+grn <- grn[grn$padj< 0.05,]
+write.table(grn,"/path/to/results/Pando/GRN_table.txt",sep=";",quote=F, row.names = F,col.names = T)
+
+
+hist(unname(sort(table(grn$target),decreasing = T)))
+quantile(unname(sort(table(grn$target),decreasing = T)),probs=c(0.05,0.25,0.5,0.75,0.95))
+# 5% 25% 50% 75% 95% 
+# 1   2   5   9  17 
+target_candidates <- names(sort(table(grn$target)))[unname(sort(table(grn$target))) >=17]
+write.table(target_candidates,"/path/to/results/Pando/GRN_target_candidates.txt",sep=" ",quote=F, row.names = F,col.names = T)
+
+# Keep all for differential regulon activity analysis 
+positive_regulons <- split(grn$target[grn$estimate>0], grn$tf[grn$estimate>0])
+positive_regulons <- positive_regulons[lengths(positive_regulons) > 10]
+negative_regulons <- split(grn$target[grn$estimate<0], grn$tf[grn$estimate<0])
+negative_regulons <- negative_regulons[lengths(negative_regulons) > 10]
+
+DefaultAssay(MSN) <- "RNA"
+mod_act_pos <- AddModuleScore(MSN,
+                              features = positive_regulons,
+                              name = "regulon_")@meta.data
+mod_act_pos <- mod_act_pos[,grep("^regulon_", colnames(mod_act_pos))] %>%
+  setNames(paste0(names(positive_regulons),"(+)"))
+mod_act_neg <- AddModuleScore(MSN,
+                              features = negative_regulons,
+                              name = "regulon_")@meta.data
+mod_act_neg <- mod_act_neg[,grep("^regulon_", colnames(mod_act_neg))] %>%
+  setNames(paste0(names(negative_regulons),"(-)"))
+
+regulons <- merge(mod_act_pos,mod_act_neg,by=0)
+rownames(regulons) <- regulons$Row.names
+regulons <- regulons[,-1]
+
+# get metadata info on CUD
+MSN_cud <- MSN@meta.data[,c("orig.ident","CUD")]
+regulons <-merge(MSN_cud,regulons,by=0)
+
+# Perform differential regulome activtiy 
+
+# create results table 
+res_df <- data.frame(regulon=colnames(regulons)[c(4:length(colnames(regulons)))],estimate=rep(0,times=length(colnames(regulons)[c(4:length(colnames(regulons)))])),p=rep(0,times=length(colnames(regulons)[c(4:length(colnames(regulons)))])))
+
+for(i in colnames(regulons)[c(4:length(colnames(regulons)))]){
+  
+  reg_CUD <- regulons[,i][regulons$CUD=="CUD"]
+  reg_Ctrl <- regulons[,i][regulons$CUD=="Ctrl"]
+  t <- wilcox.test( reg_CUD , reg_Ctrl,conf.int = T,alternative = "two.sided")
+  
+  # write into results dataframe
+  res_df$estimate[res_df$regulon == i] <- unname(t$estimate)
+  res_df$p[res_df$regulon == i] <- t$p.value
+}
+
+res_df$p[res_df$p==0] <- 4.940656e-324
+res_df$padj <- p.adjust(res_df$p,method="bonferroni",n=length(res_df$p))
+res_df <- res_df[res_df$padj<0.05,]
+
+
+# Get information on the regulon size and create a score size*effect size CUD vs. Ctrl to prioritize differential regulons 
+neg_lengths <- lapply(negative_regulons,unique)
+neg_lengths <- lapply(neg_lengths,length)
+neg_lengths_df <- data.frame(regulon=paste0(names(neg_lengths),"(-)"),length=unname(unlist(neg_lengths)))
+pos_lengths <- lapply(positive_regulons,unique)
+pos_lengths <- lapply(pos_lengths,length)
+pos_lengths_df <- data.frame(regulon=paste0(names(pos_lengths),"(+)"),length=unname(unlist(pos_lengths)))
+len <- rbind(neg_lengths_df,pos_lengths_df)
+
+
+res_df<- merge(res_df,len,by="regulon")
+res_df$score <- res_df$estimate*res_df$length
+res_df<-res_df[order(res_df$score,decreasing=T),]
+res_df$regulon <- factor(res_df$regulon,levels=c(res_df$regulon))
+res_df$lab <- c(rep("yes",times=5),rep("no",times=length(res_df$regulon)-15),rep("yes",times=10))
+
+# Visualize in waterfall plot
+library(ggrepel)
+reg <- ggplot(res_df, aes(regulon, score,label=regulon)) +
+  geom_point(size=0.5)+geom_text_repel(hjust=0, vjust=0,max.overlaps=3, nudge_y = 0.1, size = 3.5,data = subset(res_df,lab=="yes"))+ylab("regulon size * foldChange in CUD")+ theme(axis.title.x=element_blank(),
+        axis.text.x=element_blank(),
+        axis.ticks.x=element_blank(),text=element_text(size=16))+theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+panel.background = element_blank(), axis.line = element_line(colour = "black"))+geom_hline(yintercept=0)+scale_y_continuous(breaks=seq(-150,150,30))
+ggsave("/path/to/results/Pando/MSN_regulons.pdf",reg,width=7,height=6)
+
+
+MSN[['regulon']] <- CreateAssayObject(data = t(cbind(mod_act_pos, mod_act_neg)))
+
+bluered_colscheme <- colorRampPalette(rev(c("#d73027","#f46d43","#fdae61","#fee090","#e0f3f8","#abd9e9","#d174ad","#4575b4")))
+beach_colscheme <- colorRampPalette(c("#cdcdcd","#edf8b1","#7fcdbb","#41b6c4","#1d91c0","#225ea8","#0c2c84"))
+
+# UMAP TFs 
+
+regulon_tfs <- c(colnames(mod_act_neg),colnames(mod_act_pos))
+regulon_t_names <- gsub('.{3}$',"",regulon_tfs)
+
+DefaultAssay(MSN) <- "RNA"
+p1 <- FeaturePlot(MSN,
+                  features = "ZEB1",
+                  reduction = "umap",
+                  cols = beach_colscheme(30),
+                  order = T,ncol=2,split.by = "CUD",combine=F)
+p1 <- lapply(p1,function(p){
+  p+xlim(c(-12.5,-5))+ylim(c(-8,8))+NoAxes()
+})
+library(patchwork)
+p11<- wrap_plots(p1,ncol=2)
+ggsave("/path/to/results/Pando/MSN_ZEB1_RNA.pdf",p11,width=6.5,height=3)
+
+
+# UMAP regulons 
+DefaultAssay(MSN) <- "regulon"
+p2 <- FeaturePlot(MSN,
+                  features = "ZEB1(-)",
+                  reduction = "umap",
+                  cols = bluered_colscheme(30),
+                  order = T,
+                  ncol = 2,split.by = "CUD",combine=F) 
+
+p2 <- lapply(p2,function(p){
+  p+xlim(c(-12.5,-5))+ylim(c(-8,8))+NoAxes()
+})
+
+p21<- wrap_plots(p2,ncol=2)
+ggsave("/path/to/results/Pando/MSN_ZEB1(-).pdf",p21,width=6.5,height=3)
+
+p3 <- FeaturePlot(MSN,
+                  features = "ZEB1(+)",
+                  reduction = "umap",
+                  cols = bluered_colscheme(30),
+                  order = T,
+                  ncol = 2,split.by = "CUD",combine=F)
+p3 <- lapply(p3,function(p){
+  p+xlim(c(-12.5,-5))+ylim(c(-8,8))+NoAxes()
+})
+
+p31 <- wrap_plots(p3,ncol=2)
+ggsave("/path/to/results/Pando/MSN_ZEB1(+).pdf",p31,width=6.5,height=3)
+
+
+# GO plot of regulon genes 
+
+# ZEB1
+ZEB1_neg <- unique(negative_regulons$ZEB1)
+ZEB1_pos <- unique(positive_regulons$ZEB1)
+
+library(clusterProfiler)
+library(org.Hs.eg.db)
+library(enrichplot)
+ZEB1 <- compareCluster(geneClusters =list(ZEB1pos=ZEB1_pos,ZEB1neg=ZEB1_neg),fun = "enrichGO",OrgDb = org.Hs.eg.db,keyType = "SYMBOL",pvalueCutoff=0.05,ont="ALL")
+ZEB1 <- pairwise_termsim(ZEB1)
+p_ZEB <- emapplot(ZEB1,color="p.adjust",legend_n=2,cex_line=0.1,cex_label_category=1.2,layout="nicely",cex_category=0.7,showCategory=12)+scale_fill_manual(values=c("#E43F3F","#268989"))
+ggsave("/path/to/results/Pando/MSN_ZEB1_GO.pdf",p_ZEB,width=8,height=8)
+
+# PBX3
+PBX3_neg <- unique(negative_regulons$PBX3)
+PBX3_pos <- unique(positive_regulons$PBX3)
+PBX3 <- compareCluster(geneClusters =list(PBX3pos=PBX3_pos,PBX3neg=PBX3_neg),fun = "enrichGO",OrgDb = org.Hs.eg.db,keyType = "SYMBOL",pvalueCutoff=0.05,ont="ALL")
+PBX3 <- pairwise_termsim(PBX3)
+p_PBX3 <- emapplot(PBX3,color="p.adjust",legend_n=2,cex_line=0.1,cex_label_category=1.2,layout="nicely",cex_category=0.7,showCategory=12)+scale_fill_manual(values=c("#E43F3F","#268989"))
+ggsave("/path/to/results/Pando/MSN_PBX3_GO.pdf",p_PBX3,width=8,height=8)
+
+# ZNF148
+ZNF148_neg <- unique(negative_regulons$ZNF148)
+ZNF148_pos <- unique(positive_regulons$ZNF148)
+ZNF148 <- compareCluster(geneClusters =list(ZNF148pos=ZNF148_pos,ZNF148neg=ZNF148_neg),fun = "enrichGO",OrgDb = org.Hs.eg.db,keyType = "SYMBOL",pvalueCutoff=0.05,ont="ALL")
+ZNF148 <- pairwise_termsim(ZNF148)
+p_ZNF148 <- emapplot(ZNF148,color="p.adjust",legend_n=2,cex_line=0.1,cex_label_category=1.2,layout="nicely",cex_category=0.7,showCategory=12)+scale_fill_manual(values=c("#E43F3F","#268989"))
+ggsave("/path/to/results/Pando/MSN_ZNF148_GO.pdf",p_ZNF148,width=8,height=8)
+
+# All together 
+
+comb <- compareCluster(geneClusters =list(ZEB1_pos=ZEB1_pos,PBX3_pos=PBX3_pos,ZNF148_pos=ZNF148_pos,ZEB1_neg=ZEB1_neg,PBX3_neg=PBX3_neg,ZNF148_neg=ZNF148_neg),fun = "enrichGO",OrgDb = org.Hs.eg.db,keyType = "SYMBOL",pvalueCutoff=0.05,ont="ALL")
+comb <- pairwise_termsim(comb)
+p_comb <- emapplot(comb,color="p.adjust",legend_n=2,cex_line=0.1,cex_label_category=1.2,layout="nicely",cex_category=0.7,showCategory=10)+scale_fill_manual(values=c("#E43F3F","#e96565","#ee8b8b","#268989",
+"#73b3b3","#96c6c6"))
+ggsave("/path/to/results/Pando/MSN_comb_GO.pdf",p_comb,width=8,height=8)
+```
+
+
+# Visualize tracks for peaks in gene indetified by GRN - CACNA1C
+```{r tracks,warning=FALSE, message=FALSE, results='hide'}
+### Plot tracks for binding peak ####
+ob <- readRDS(file = "/path/to/data/6_LinkedPeaks.rds")
+
+
+
+to_tf <- 'CACNA1C'
+Idents(ob) <- "celltypes"
+MSN <- subset(ob,idents=c("GABAergic - D1 MSN","GABAergic - D2 MSN"))
+annot <- Annotation(MSN)
+annot <- annot[annot$gene_name==to_tf]
+
+annot_ex <- Extend(annot, upstream = 100000)
+region <- GRanges(seqnames = as.character(seqnames(annot_ex))[[1]], ranges = IRanges(start = min(start(annot_ex)), end = max(end(annot_ex))))
+
+# region <- resize(region, width = 30000, fix='start')
+
+library(stringr)
+binding_regions <- modules@meta %>% filter(target==to_tf) %>% pull(regions) %>% str_split(';')%>% unlist()%>%StringToGRanges()
+
+binding_regions <- modules@meta %>% filter(target==to_tf) %>% 
+  separate_rows(regions, sep=';') %>% 
+  separate(regions, sep='-', into=c('seqnames', 'start', 'end'), convert=T) %>% 
+  filter(end>start(region), start<end(region)) %>% 
+  group_by(start, end) %>% 
+  mutate(padj_peak=min(padj)) %>% 
+  mutate(padj_peak=pmax(padj, 1e-10)) %>% 
+  mutate(pos_ratio=sum(sign(estimate)==1)/n()) %>% 
+  ungroup()
+
+binding_regions_label <- binding_regions %>% 
+  filter(padj_peak<1e-3) %>% 
+  group_by(start, end) %>% 
+  top_n(2, estimate)
+
+
+p_mot <- ggplot(binding_regions) +
+  geom_segment(aes(x=start, y=0, xend=end, yend=0, color=-log10(padj)), size=4) +
+  theme_void() +
+  scale_color_gradientn(colors=pals::brewer.greys(10)) +  ggnewscale::new_scale_color() +
+  geom_text_repel(
+    aes(x=(start+end)/2, y=0, color=factor(sign(estimate)), label=tf), 
+    size=5/ggplot2::.pt, max.overlaps = 100, nudge_y=-100, angle=90, force=1,
+      
+  ) +
+  scale_color_manual(values=c('#20877B', '#882160'))+
+  xlim(c(start(region), end(region))) +
+  no_legend()
+
+p_cov <- CoveragePlot(MSN,
+  region = region, 
+  group.by = 'CUD', 
+  annotation = FALSE,
+  peaks = FALSE
+) &
+  theme_void() & no_legend() & theme(strip.text = element_blank())
+
+p_an <- AnnotationPlot(
+  MSN,
+  region = region
+) + theme_void() 
+
+p_pe <- PeakPlot(
+  MSN,
+  region = region
+) + theme_void() + no_legend()
+
+library(patchwork)
+p_final <- p_cov / p_an / p_pe / p_mot + plot_layout(heights=c(5,2,2,1.5)) & theme(text = element_text(size=10))
+ggsave("/path/to/results/Pando/MSN_CACNA1C.pdf",p_final,width=5,height=5)
+
+
+```
+
+
+
+# Visualize tracks for peaks in gene indetified by GRN - CACNA1C
+```{r tracks2,warning=FALSE, message=FALSE, results='hide'}
+### Plot tracks for binding peak ####
+
+to_tf <- 'PDE10A'
+Idents(ob) <- "celltypes"
+MSN <- subset(ob,idents=c("GABAergic - D1 MSN","GABAergic - D2 MSN"))
+annot <- Annotation(MSN)
+annot <- annot[annot$gene_name==to_tf]
+
+annot_ex <- Extend(annot, upstream = 100000)
+region <- GRanges(seqnames = as.character(seqnames(annot_ex))[[1]], ranges = IRanges(start = min(start(annot_ex)), end = max(end(annot_ex))))
+
+# region <- resize(region, width = 30000, fix='start')
+
+library(stringr)
+binding_regions <- modules@meta %>% filter(target==to_tf) %>% pull(regions) %>% str_split(';')%>% unlist()%>%StringToGRanges()
+
+binding_regions <- modules@meta %>% filter(target==to_tf) %>% 
+  separate_rows(regions, sep=';') %>% 
+  separate(regions, sep='-', into=c('seqnames', 'start', 'end'), convert=T) %>% 
+  filter(end>start(region), start<end(region)) %>% 
+  group_by(start, end) %>% 
+  mutate(padj_peak=min(padj)) %>% 
+  mutate(padj_peak=pmax(padj, 1e-10)) %>% 
+  mutate(pos_ratio=sum(sign(estimate)==1)/n()) %>% 
+  ungroup()
+
+binding_regions_label <- binding_regions %>% 
+  filter(padj_peak<1e-3) %>% 
+  group_by(start, end) %>% 
+  top_n(2, estimate)
+
+
+p_mot <- ggplot(binding_regions) +
+  geom_segment(aes(x=start, y=0, xend=end, yend=0, color=-log10(padj)), size=4) +
+  theme_void() +
+  scale_color_gradientn(colors=pals::brewer.greys(10)) +  ggnewscale::new_scale_color() +
+  geom_text_repel(
+    aes(x=(start+end)/2, y=0, color=factor(sign(estimate)), label=tf), 
+    size=5/ggplot2::.pt, max.overlaps = 100, nudge_y=-100, angle=90, force=1,
+      
+  ) +
+  scale_color_manual(values=c('#20877B', '#882160'))+
+  xlim(c(start(region), end(region))) +
+  no_legend()
+
+p_cov <- CoveragePlot(MSN,
+  region = region, 
+  group.by = 'CUD', 
+  annotation = FALSE,
+  peaks = FALSE
+) &
+  theme_void() & no_legend() & theme(strip.text = element_blank())
+
+p_an <- AnnotationPlot(
+  MSN,
+  region = region
+) + theme_void() 
+
+p_pe <- PeakPlot(
+  MSN,
+  region = region
+) + theme_void() + no_legend()
+
+library(patchwork)
+p_final <- p_cov / p_an / p_pe / p_mot + plot_layout(heights=c(5,2,2,1.5)) & theme(text = element_text(size=10))
+ggsave("/path/to/results/Pando/MSN_PDE10A.pdf",p_final,width=5,height=5)
+
+
+```
+
+
+
+# Write tables for Druggability analysis
+```{r drugs,warning=FALSE, message=FALSE, results='hide'}
+# DGIdb results for the CUD analysis 
+# used the top connected target genes from the D1/D2MSN GRN as contained in 
+#/path/to/results/Pando/GRN_target_candidates.txt
+# Downloaded the results from DGIdb
+
+DGI <- read.delim("/path/to/results/Pando/DGIdb/gene_interaction_results-4_4_2024.tsv")
+DGI <- DGI[order(DGI$interaction.score,decreasing = T),]
+
+# Rename PDE10A as it has a LINC ID here 
+DGI$gene[DGI$gene=="LINC00473"]<-"PDE10A"
+write.table(DGI,"/path/to/results/Pando/DGIdb/DGIdb_sorted_by_interaction_score_all.txt",sep="\t",quote=F,row.names = F,col.names = T)
+
+# Filter for approved drugs only 
+DGI_appr <- DGI[DGI$regulatory.approval=="Approved",]
+write.table(DGI_appr,"/path/to/results/Pando/DGIdb/DGIdb_sorted_by_interaction_score_approved_only.txt",sep="\t",quote=F,row.names = F,col.names = T)
+
+
+```
+

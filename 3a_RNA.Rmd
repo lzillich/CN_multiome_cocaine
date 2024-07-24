@@ -1,0 +1,147 @@
+---
+title: "Analysis RNA"
+author: "Lea Zillich"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(Signac)
+library(clustree)
+library(Matrix)
+library(dplyr)
+library(AnnotationHub)
+library(BSgenome.Hsapiens.UCSC.hg38)
+#library(SeuratDisk)
+library(GenomicRanges)
+library(future)
+library(varhandle)
+library(readxl)
+library(knitr)
+set.seed(42)
+library(Seurat.utils)
+```
+
+```{r import QCed dataset, echo=FALSE}
+seurat <- readRDS("/path/to/data/1_combined_object.rds")
+
+```
+
+```{r import pheno data, echo=FALSE}
+library(readxl)
+pheno <- read_excel("/path/to/data/pheno_CN_14.xlsx")
+pheno <- pheno[pheno$ID.x!="16",]
+```
+
+```{r add meta data, echo=FALSE}
+#CUD
+seurat@meta.data$CUD <- NA
+seurat@meta.data$CUD[seurat@meta.data$orig.ident=="sample1"] <- "Ctrl"
+seurat@meta.data$CUD[seurat@meta.data$orig.ident=="sample2"] <- "Ctrl"
+seurat@meta.data$CUD[seurat@meta.data$orig.ident=="sample5"] <- "Ctrl"
+seurat@meta.data$CUD[seurat@meta.data$orig.ident=="sample6"] <- "Ctrl"
+seurat@meta.data$CUD[seurat@meta.data$orig.ident=="sample9"] <- "Ctrl"
+seurat@meta.data$CUD[seurat@meta.data$orig.ident=="sample10"] <- "Ctrl"
+seurat@meta.data$CUD[seurat@meta.data$orig.ident=="sample13"] <- "Ctrl"
+seurat@meta.data$CUD[seurat@meta.data$orig.ident=="sample14"] <- "Ctrl"
+seurat@meta.data$CUD[seurat@meta.data$orig.ident=="sample3"] <- "CocUD"
+seurat@meta.data$CUD[seurat@meta.data$orig.ident=="sample7"] <- "CocUD"
+seurat@meta.data$CUD[seurat@meta.data$orig.ident=="sample8"] <- "CocUD"
+seurat@meta.data$CUD[seurat@meta.data$orig.ident=="sample11"] <- "CocUD"
+seurat@meta.data$CUD[seurat@meta.data$orig.ident=="sample12"] <- "CocUD"
+seurat@meta.data$CUD[seurat@meta.data$orig.ident=="sample15"] <- "CocUD"
+
+
+#sex
+seurat@meta.data$sex <- NA
+seurat@meta.data$sex[seurat@meta.data$orig.ident=="sample1"] <- "male"
+seurat@meta.data$sex[seurat@meta.data$orig.ident=="sample2"] <- "male"
+seurat@meta.data$sex[seurat@meta.data$orig.ident=="sample3"] <- "male"
+seurat@meta.data$sex[seurat@meta.data$orig.ident=="sample5"] <- "female"
+seurat@meta.data$sex[seurat@meta.data$orig.ident=="sample6"] <- "male"
+seurat@meta.data$sex[seurat@meta.data$orig.ident=="sample7"] <- "male"
+seurat@meta.data$sex[seurat@meta.data$orig.ident=="sample8"] <- "female"
+seurat@meta.data$sex[seurat@meta.data$orig.ident=="sample9"] <- "female"
+seurat@meta.data$sex[seurat@meta.data$orig.ident=="sample10"] <- "female"
+seurat@meta.data$sex[seurat@meta.data$orig.ident=="sample11"] <- "male"
+seurat@meta.data$sex[seurat@meta.data$orig.ident=="sample12"] <- "female"
+seurat@meta.data$sex[seurat@meta.data$orig.ident=="sample13"] <- "male"
+seurat@meta.data$sex[seurat@meta.data$orig.ident=="sample14"] <- "male"
+seurat@meta.data$sex[seurat@meta.data$orig.ident=="sample15"] <- "male"
+
+#PMI
+seurat@meta.data$PMI <- NA
+seurat@meta.data$PMI[seurat@meta.data$orig.ident=="sample1"] <- 30.25
+seurat@meta.data$PMI[seurat@meta.data$orig.ident=="sample2"] <- 37.4
+seurat@meta.data$PMI[seurat@meta.data$orig.ident=="sample3"] <- 28.65
+seurat@meta.data$PMI[seurat@meta.data$orig.ident=="sample5"] <- 28.03
+seurat@meta.data$PMI[seurat@meta.data$orig.ident=="sample6"] <- 27.6
+seurat@meta.data$PMI[seurat@meta.data$orig.ident=="sample7"] <- 18.41
+seurat@meta.data$PMI[seurat@meta.data$orig.ident=="sample8"] <- 13.06
+seurat@meta.data$PMI[seurat@meta.data$orig.ident=="sample9"] <- 26.4
+seurat@meta.data$PMI[seurat@meta.data$orig.ident=="sample10"] <- 20.32
+seurat@meta.data$PMI[seurat@meta.data$orig.ident=="sample11"] <- 29.67
+seurat@meta.data$PMI[seurat@meta.data$orig.ident=="sample12"] <- 30.13
+seurat@meta.data$PMI[seurat@meta.data$orig.ident=="sample13"] <- 39.83
+seurat@meta.data$PMI[seurat@meta.data$orig.ident=="sample14"] <- 24.42
+seurat@meta.data$PMI[seurat@meta.data$orig.ident=="sample15"] <- 27.32
+
+#Overdose
+seurat@meta.data$overdose <- 0
+seurat@meta.data$overdose[seurat@meta.data$orig.ident=="sample11"] <- 1
+seurat@meta.data$overdose[seurat@meta.data$orig.ident=="sample8"] <- 1
+seurat@meta.data$overdose[seurat@meta.data$orig.ident=="sample3"] <- 1
+```
+
+
+```{r RNA analysis 1, echo=FALSE}
+DefaultAssay(seurat) <- "RNA"
+
+seurat <- NormalizeData(seurat) %>%
+  FindVariableFeatures(nfeatures = 3000) %>%
+  CellCycleScoring(s.features = cc.genes.updated.2019$s.genes,
+                   g2m.features = cc.genes.updated.2019$g2m.genes) %>%
+  ScaleData() %>%
+  RunPCA(npcs = 50) 
+
+library(harmony)
+seurat <- RunHarmony(seurat, group.by.vars = "orig.ident", dims.use = 1:20, max.iter.harmony = 50)
+seurat <- RunUMAP(seurat, reduction = "harmony", dims = 1:20)
+seurat <- FindNeighbors(seurat, reduction = "harmony", dims = 1:20) %>% FindClusters(resolution = 0.2)
+
+plot1 <- UMAPPlot(seurat, reduction="harmony",group.by="orig.ident")
+plot2 <- UMAPPlot(seurat, reduction="harmony", label = T)
+plot1
+plot2
+
+
+```
+
+
+```{r cycling cells, echo=TRUE,out.width="100%"}
+#rausregressiert
+DefaultAssay(seurat) <- "RNA"
+FeaturePlot(seurat, features = c("S.Score","G2M.Score"))
+DotPlot(object = seurat, features = c("S.Score","G2M.Score"))
+```
+
+```{r pheno, echo=TRUE,out.width="100%"}
+#rausregressiert
+DefaultAssay(seurat) <- "RNA"
+UMAPPlot(seurat, group.by ="sex")
+UMAPPlot(seurat, group.by ="PMI")
+
+```
+
+
+```{r save, echo=FALSE}
+saveRDS(seurat, "/path/to/data/2_harmony_object_24.rds")
+```
+
+
+
+
+
+
+

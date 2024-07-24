@@ -1,0 +1,242 @@
+---
+title: "scDRS"
+author: "Eric & Lea Zillich"
+date: "07/18/2024"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+#load packages
+library(missMethyl)
+library(IlluminaHumanMethylationEPICanno.ilm10b2.hg19)
+library(readr)
+library(data.table)
+library(dplyr)
+library(RColorBrewer)
+library(ggplot2)
+library(biomaRt)
+library(Seurat)
+library(SeuratData)
+library(SeuratDisk)
+```
+
+
+## Import and process GWAS data
+
+```{r importGWAS}
+## Preprocess GWAS data using MAGMA to obtain a z-scored gene list with p-val info
+
+# Run in CLI
+#cd /path/to/GWAS_enrichment/
+
+#./magma --annotate --snp-loc reference/g1000_afr.bim --gene-loc ncbi37/NCBI37.3.gene.loc --out annotation/GWAS.anno.afr
+
+# CUD AA
+#./magma --bfile reference/g1000_afr --gene-annot annotation/GWAS.anno.afr.genes.annot --pval /path/to/2014_Gelernter_GWAS_sumstats/scDRS/sumstats_cocdep_munged_aa.txt use=SNP,P N=3318 --out /path/to/results/scDRS/CUD
+
+# CanUD
+#./magma --bfile reference/g1000_afr --gene-annot annotation/GWAS.anno.afr.genes.annot --pval /path/to/data/scDRS/GWAS_data/CanUD_Johnson/CanUD_Johnson_munged.tsv use=SNP,P ncol=N --out /path/to/results/scDRS/CanUD
+
+# AUD
+#./magma --bfile reference/g1000_afr --gene-annot annotation/GWAS.anno.afr.genes.annot --pval /path/to/data/scDRS/GWAS_data/AUD_Walters/AUD_Walters_munged.txt use=SNP,P ncol=N --out /path/to/results/scDRS/AUD
+
+# OUD
+#./magma --bfile reference/g1000_afr --gene-annot annotation/GWAS.anno.afr.genes.annot --pval /path/to/data/scDRS/GWAS_data/OUD_Polimanti/OUD_Polimanti_munged.tsv use=SNP,P ncol=N --out /path/to/results/scDRS/OUD
+
+
+CUD_genes <- read.csv("/path/to/results/scDRS/CUD.genes.out", sep="")
+AUD_genes <- read.csv("/path/to/results/scDRS/AUD.genes.out", sep="")
+OUD_genes <- read.csv("/path/to/results/scDRS/OUD.genes.out", sep="")
+CanUD_genes <- read.csv("/path/to/results/scDRS/CanUD.genes.out", sep="")
+
+## Generate CUD gene set
+
+# Convert EntrezID to gene symbol
+ gene_ids <- as.character(CUD_genes$GENE)
+ rownames(CUD_genes) <- CUD_genes$GENE
+# mart <- useDataset("hsapiens_gene_ensembl", mart = useMart("ensembl"))
+ #listAttributes(mart)
+  Annotated <- getBM(
+    mart=mart,
+    attributes=c("entrezgene_id","ensembl_gene_id", "external_gene_name"),
+    filter="entrezgene_id",
+    values=gene_ids,
+    uniqueRows=TRUE,useCache = F)
+  
+ #Merge the converted gene names to the gene ID list
+  colnames(CUD_genes)[1] <- "entrezgene_id"
+  genes_CUD_anno <- merge(CUD_genes,Annotated, by = "entrezgene_id")
+  genes_CUD_anno <- genes_CUD_anno[!duplicated(genes_CUD_anno$external_gene_name),]
+  
+  # AUD
+  
+gene_ids <- as.character(AUD_genes[,"GENE"])
+ rownames(AUD_genes) <- AUD_genes[,"GENE"]
+  #mart <- useDataset("hsapiens_gene_ensembl", mart = useMart("ensembl"))
+  #listAttributes(mart)
+  Annotated <- getBM(
+    mart=mart,
+    attributes=c("entrezgene_id","ensembl_gene_id", "external_gene_name"),
+    filter="entrezgene_id",
+    values=gene_ids,
+    uniqueRows=TRUE,useCache = F)
+  
+  #Merge the converted gene names to the gene ID list
+  colnames(AUD_genes)[1] <- "entrezgene_id"
+  genes_AUD_anno <- merge(AUD_genes,Annotated, by = "entrezgene_id")
+  genes_AUD_anno <- genes_AUD_anno[!duplicated(genes_AUD_anno$external_gene_name),]
+  
+# CanUD
+    gene_ids <- as.character(CanUD_genes[,"GENE"])
+ rownames(CanUD_genes) <- CanUD_genes[,"GENE"]
+  #mart <- useDataset("hsapiens_gene_ensembl", mart = useMart("ensembl"))
+  #listAttributes(mart)
+  Annotated <- getBM(
+    mart=mart,
+    attributes=c("entrezgene_id","ensembl_gene_id", "external_gene_name"),
+    filter="entrezgene_id",
+    values=gene_ids,
+    uniqueRows=TRUE,useCache = F)
+  
+  #Merge the converted gene names to the gene ID list
+  colnames(CanUD_genes)[1] <- "entrezgene_id"
+  genes_CanUD_anno <- merge(CanUD_genes,Annotated, by = "entrezgene_id")
+  genes_CanUD_anno <- genes_CanUD_anno[!duplicated(genes_CanUD_anno$external_gene_name),]
+
+# OUD
+  gene_ids <- as.character(OUD_genes[,"GENE"])
+ rownames(OUD_genes) <- OUD_genes[,"GENE"]
+  #mart <- useDataset("hsapiens_gene_ensembl", mart = useMart("ensembl"))
+  #listAttributes(mart)
+  Annotated <- getBM(
+    mart=mart,
+    attributes=c("entrezgene_id","ensembl_gene_id", "external_gene_name"),
+    filter="entrezgene_id",
+    values=gene_ids,
+    uniqueRows=TRUE,useCache = F)
+  
+  #Merge the converted gene names to the gene ID list
+  colnames(OUD_genes)[1] <- "entrezgene_id"
+  genes_OUD_anno <- merge(OUD_genes,Annotated, by = "entrezgene_id")
+  genes_OUD_anno <- genes_OUD_anno[!duplicated(genes_OUD_anno$external_gene_name),]
+
+  
+## Generate pval file for input in scDRS
+  genes_CUD_anno <- genes_CUD_anno[,c("external_gene_name","P")]
+  colnames(genes_CUD_anno) <- c("Gene","P_CUD")
+  
+   genes_AUD_anno <- genes_AUD_anno[,c("external_gene_name","P")]
+  colnames(genes_AUD_anno) <- c("Gene","P_AUD")
+  
+    genes_CanUD_anno <- genes_CanUD_anno[,c("external_gene_name","P")]
+  colnames(genes_CanUD_anno) <- c("Gene","P_CanUD")
+  
+    genes_OUD_anno <- genes_OUD_anno[,c("external_gene_name","P")]
+  colnames(genes_OUD_anno) <- c("Gene","P_OUD")
+  
+   
+
+# Combine files
+  library(purrr)
+  pval_file_list <- list(genes_CUD_anno,genes_AUD_anno,genes_CanUD_anno,genes_OUD_anno)
+  pval_file_list <- pval_file_list %>% reduce(full_join,by="Gene")
+  pval_file_list <- pval_file_list[complete.cases(pval_file_list),]
+  
+write.table(pval_file_list,"/path/to/results/scDRS/pval_all.tsv",sep="\t",row.names = F,col.names=T)
+
+```
+
+# Perform scDRS munge
+
+```{r scDRS munge}
+# $ scdrs munge-gs --out-file /path/to/results/scDRS/CUD_munge.gs --pval-file /path/to/results/scDRS/pval_all.tsv --weight zscore --n-max 1000
+```
+
+# Import seurat object and convert to h5ad file
+
+```{r importObject}
+seurat <- readRDS(file = "/path/to/data/6_LinkedPeaks.rds")
+DefaultAssay(seurat) <- "RNA"
+
+# Remove ATAC assay and scale.data slot otherwise scDRS will report errors
+seurat2 <- DietSeurat(
+  seurat,
+  counts = TRUE,
+  data = TRUE,
+  scale.data = FALSE,
+  assays = "RNA",
+  dimreducs = NULL,
+  graphs = NULL,
+  misc = F
+)
+
+## Convert to h5ad
+
+SaveH5Seurat(seurat2, filename = "/path/to/data/scDRS/6_LinkedPeaks.h5Seurat")
+
+Convert("/path/to/data/scDRS/6_LinkedPeaks.h5Seurat", dest = "/path/to/data/scDRS/6_LinkedPeaks.h5Seurat.h5ad")
+```
+
+# Run scDRS main (score) function
+
+```{r scdrs score}
+# scdrs compute-score\
+#     --h5ad-file /path/to/data/scDRS/6_LinkedPeaks.h5Seurat.h5ad\
+#     --h5ad-species human\
+#     --gs-file /path/to/results/scDRS/CUD_munge.gs\
+#     --gs-species human\
+#     --out-folder /path/to/results/scDRS/\
+#     --flag-filter-data True\
+#     --adj_prop celltypes\
+#     --flag-raw-count True\
+#     --n-ctrl 1000\
+#     --flag-return-ctrl-raw-score False\
+#     --flag-return-ctrl-norm-score True
+```
+
+## Run scDRS downstream analyses
+
+```{r scDRS downstream}
+## CUD
+# scdrs perform-downstream\
+#      --h5ad-file /path/to/data/scDRS/6_LinkedPeaks.h5Seurat.h5ad\
+#      --score-file /path/to/results/scDRS/P_CUD.full_score.gz\
+#      --out-folder /path/to/results/scDRS/downstream/\
+#      --group-analysis celltypes\
+#      --gene-analysis\
+#      --flag-filter-data True\
+#      --flag-raw-count True
+
+# AUD
+# scdrs perform-downstream\
+#      --h5ad-file /path/to/data/scDRS/6_LinkedPeaks.h5Seurat.h5ad\
+#      --score-file /path/to/results/scDRS/P_AUD.full_score.gz\
+#      --out-folder /path/to/results/scDRS/downstream/\
+#      --group-analysis celltypes\
+#      --gene-analysis\
+#      --flag-filter-data True\
+#      --flag-raw-count True
+
+
+#CanUD
+# scdrs perform-downstream\
+#      --h5ad-file /path/to/data/scDRS/6_LinkedPeaks.h5Seurat.h5ad\
+#      --score-file /path/to/results/scDRS/P_CanUD.full_score.gz\
+#      --out-folder /path/to/results/scDRS/downstream/\
+#      --group-analysis celltypes\
+#      --gene-analysis\
+#      --flag-filter-data True\
+#      --flag-raw-count True
+
+#OUD
+# scdrs perform-downstream\
+#      --h5ad-file /path/to/data/scDRS/6_LinkedPeaks.h5Seurat.h5ad\
+#      --score-file /path/to/results/scDRS/P_OUD.full_score.gz\
+#      --out-folder /path/to/results/scDRS/downstream/\
+#      --group-analysis celltypes\
+#      --gene-analysis\
+#      --flag-filter-data True\
+#      --flag-raw-count True
+
+```

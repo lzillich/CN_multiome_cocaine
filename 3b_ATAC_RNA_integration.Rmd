@@ -1,0 +1,141 @@
+---
+title: "3b_ATAC_RNA_integration"
+author: "Lea Zillich"
+output: html_document
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(Signac)
+library(clustree)
+library(Matrix)
+library(dplyr)
+library(AnnotationHub)
+library(BSgenome.Hsapiens.UCSC.hg38)
+#library(SeuratDisk)
+library(GenomicRanges)
+library(future)
+library(varhandle)
+library(readxl)
+library(knitr)
+set.seed(42)
+library(Seurat.utils)
+library(enrichR)
+library(JASPAR2020)
+library(TFBSTools)
+library(gridExtra)
+library(tradeSeq)
+library(tidyverse)
+library(BUSpaRse)
+library(tidymodels)
+library(slingshot)
+library(SingleCellExperiment)
+```
+
+
+```{r import QCed dataset, echo=FALSE}
+seurat <- readRDS("/path/to/data/2_harmony_object_24.rds")
+```
+
+## Analysis ATAC assay
+
+
+```{r FeatureSelection}
+#find features
+seurat <- FindTopFeatures(seurat, min.cutoff = 50)
+
+#normalization
+seurat <- RunTFIDF(seurat, method = 1)
+
+#linear dimension reduction
+seurat <- RunSVD(seurat, n = 50)
+
+p1 <- ElbowPlot(seurat, ndims = 30, reduction="lsi")
+p2 <- DepthCor(seurat, n = 30)
+p1 | p2
+
+```
+
+
+
+## UMAP
+
+```{r ATAC dimension reduction, echo=FALSE}
+seurat <- RunUMAP(seurat,
+                  reduction = "lsi",
+                  dims = 2:30,
+                  reduction.name = "umap_atac",
+                  reduction.key = "UMAPATAC_")
+
+```
+
+
+
+
+```{r ATAC integrate, echo=FALSE}
+## Run Harmony
+
+library(harmony)
+seurat <- RunHarmony(seurat,
+                     group.by.vars = "orig.ident",
+                     reduction = "lsi",
+                     dims.use = 2:30,
+                     max.iter.harmony = 50,
+                     reduction.save = "harmony_atac")
+seurat <- RunUMAP(seurat,
+                  reduction = "harmony_atac",
+                  dims = 1:ncol(Embeddings(seurat,"harmony_atac")),
+                  reduction.name = "umap_harmony_atac",
+                  reduction.key = "UMAPHARMONYATAC_")
+
+DimPlot(seurat,
+              group.by = "orig.ident",
+              reduction = "umap_harmony_atac") & NoAxes()
+
+DimPlot(seurat,
+              reduction = "umap_harmony_atac") & NoAxes()
+
+```
+
+
+```{r find neighbors, echo=FALSE}
+seurat <- FindMultiModalNeighbors(seurat,
+                                  reduction.list = list("harmony", "harmony_atac"),
+                                  dims.list = list(1:ncol(Embeddings(seurat,"harmony")),
+                                                   1:ncol(Embeddings(seurat,"harmony_atac"))),
+                                  modality.weight.name = c("RNA.weight","ATAC.weight"),
+                                  verbose = TRUE)
+
+seurat <- RunUMAP(seurat,nn.name = "weighted.nn", assay = "RNA")
+seurat <- FindClusters(seurat, graph.name = "wsnn", resolution = 0.25)
+
+p1 <- UMAPPlot(seurat, group.by = "orig.ident") & NoAxes()
+p2 <- UMAPPlot(seurat, group.by = "wsnn_res.0.25", label=T)
+p1 | p2 
+
+seurat@meta.data$celltypes <- as.character(seurat@meta.data$seurat_clusters)
+
+
+Idents(seurat) <- "wsnn_res.0.25"
+DefaultAssay(seurat) <- "RNA"
+UMAPPlot(seurat, label = T)
+DimPlot(seurat, split.by = "CUD",label = T, ncol = 2)
+DimPlot(seurat, group.by = "orig.ident")
+```
+
+
+```{r pheno, echo=TRUE,out.width="100%"}
+#rausregressiert
+DefaultAssay(seurat) <- "RNA"
+UMAPPlot(seurat, group.by ="sex")
+UMAPPlot(seurat, group.by ="PMI")
+
+UMAPPlot(seurat, group.by="celltypes")
+```
+
+
+```{r save, echo=FALSE}
+saveRDS(seurat, "/path/to/data/3_harmony_integrated.rds")
+```
+
