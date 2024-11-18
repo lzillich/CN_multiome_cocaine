@@ -156,7 +156,7 @@ write.table(pval_file_list,"/path/to/results/scDRS/pval_all.tsv",sep="\t",row.na
 # Import seurat object and convert to h5ad file
 
 ```{r importObject}
-seurat <- readRDS(file = "/path/to/data/6_LinkedPeaks.rds")
+seurat <- readRDS("/path/to/data/5_LinkedPeaks.rds")
 DefaultAssay(seurat) <- "RNA"
 
 # Remove ATAC assay and scale.data slot otherwise scDRS will report errors
@@ -173,16 +173,16 @@ seurat2 <- DietSeurat(
 
 ## Convert to h5ad
 
-SaveH5Seurat(seurat2, filename = "/path/to/data/scDRS/6_LinkedPeaks.h5Seurat")
+SaveH5Seurat(seurat2, filename = "/path/to/data/5_LinkedPeaks.h5Seurat")
 
-Convert("/path/to/data/scDRS/6_LinkedPeaks.h5Seurat", dest = "/path/to/data/scDRS/6_LinkedPeaks.h5Seurat.h5ad")
+Convert("/path/to/data/5_LinkedPeaks.h5Seurat", dest = "/path/to/data/scDRS/5_LinkedPeaks.h5Seurat.h5ad")
 ```
 
 # Run scDRS main (score) function
 
 ```{r scdrs score}
 # scdrs compute-score\
-#     --h5ad-file /path/to/data/scDRS/6_LinkedPeaks.h5Seurat.h5ad\
+#     --h5ad-file /path/to/data/scDRS/5_LinkedPeaks.h5Seurat.h5ad\
 #     --h5ad-species human\
 #     --gs-file /path/to/results/scDRS/CUD_munge.gs\
 #     --gs-species human\
@@ -200,7 +200,7 @@ Convert("/path/to/data/scDRS/6_LinkedPeaks.h5Seurat", dest = "/path/to/data/scDR
 ```{r scDRS downstream}
 ## CUD
 # scdrs perform-downstream\
-#      --h5ad-file /path/to/data/scDRS/6_LinkedPeaks.h5Seurat.h5ad\
+#      --h5ad-file /path/to/data/scDRS/5_LinkedPeaks.h5Seurat.h5ad\
 #      --score-file /path/to/results/scDRS/P_CUD.full_score.gz\
 #      --out-folder /path/to/results/scDRS/downstream/\
 #      --group-analysis celltypes\
@@ -210,7 +210,7 @@ Convert("/path/to/data/scDRS/6_LinkedPeaks.h5Seurat", dest = "/path/to/data/scDR
 
 # AUD
 # scdrs perform-downstream\
-#      --h5ad-file /path/to/data/scDRS/6_LinkedPeaks.h5Seurat.h5ad\
+#      --h5ad-file /path/to/data/scDRS/5_LinkedPeaks.h5Seurat.h5ad\
 #      --score-file /path/to/results/scDRS/P_AUD.full_score.gz\
 #      --out-folder /path/to/results/scDRS/downstream/\
 #      --group-analysis celltypes\
@@ -221,7 +221,7 @@ Convert("/path/to/data/scDRS/6_LinkedPeaks.h5Seurat", dest = "/path/to/data/scDR
 
 #CanUD
 # scdrs perform-downstream\
-#      --h5ad-file /path/to/data/scDRS/6_LinkedPeaks.h5Seurat.h5ad\
+#      --h5ad-file /path/to/data/scDRS/5_LinkedPeaks.h5Seurat.h5ad\
 #      --score-file /path/to/results/scDRS/P_CanUD.full_score.gz\
 #      --out-folder /path/to/results/scDRS/downstream/\
 #      --group-analysis celltypes\
@@ -231,7 +231,7 @@ Convert("/path/to/data/scDRS/6_LinkedPeaks.h5Seurat", dest = "/path/to/data/scDR
 
 #OUD
 # scdrs perform-downstream\
-#      --h5ad-file /path/to/data/scDRS/6_LinkedPeaks.h5Seurat.h5ad\
+#      --h5ad-file /path/to/data/scDRS/5_LinkedPeaks.h5Seurat.h5ad\
 #      --score-file /path/to/results/scDRS/P_OUD.full_score.gz\
 #      --out-folder /path/to/results/scDRS/downstream/\
 #      --group-analysis celltypes\

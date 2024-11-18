@@ -15,11 +15,12 @@ library(Signac)
 
 # Import data
 ```{r importObject, echo=FALSE}
-seurat <- readRDS("/path/to/data/6_LinkedPeaks.rds")
+seurat <- readRDS("/path/to/data/5_LinkedPeaks.rds")
 seurat@meta.data$cluster_condition_sex <- paste0(seurat@meta.data$CUD,"_",seurat@meta.data$celltypes,"_",seurat@meta.data$sex)
 
 # Get annotation 
-anno <- as.data.frame(Annotation(seurat),row.names = 1:3635905)
+DefaultAssay(seurat) <- "ATAC"
+anno <- as.data.frame(Annotation(seurat), row.names=1:365905)
 # extract genes on sex chromosomes 
 sex_genes <- unique(anno$gene_name[anno$seqnames %in% c("chrX","chrY")])
 
@@ -38,9 +39,9 @@ DefaultAssay(seurat) <- "RNA"
 for (i in unique(seurat@meta.data$celltypes)){
   for(j in c("male","female")){
 
-    if(length(seurat$cluster_condition_sex[seurat$cluster_condition_sex == paste0("CUD_",i,"_",j)])>10 & length(seurat$cluster_condition_sex[seurat$cluster_condition_sex == paste0("Ctrl_",i,"_",j)])>10){
+    if(length(seurat$cluster_condition_sex[seurat$cluster_condition_sex == paste0("CocUD_",i,"_",j)])>10 & length(seurat$cluster_condition_sex[seurat$cluster_condition_sex == paste0("Ctrl_",i,"_",j)])>10){
       
-    markers <- FindMarkers(seurat,ident.1 = paste0("CUD_",i,"_",j), ident.2 = paste0("Ctrl_",i,"_",j), min.pct = 0.25,assay = "RNA",logfc.threshold = 0)
+    markers <- FindMarkers(seurat,ident.1 = paste0("CocUD_",i,"_",j), ident.2 = paste0("Ctrl_",i,"_",j), min.pct = 0.25,assay = "RNA",logfc.threshold = 0)
 
 write.csv(markers, paste0("/path/to/results/DE/FindMarkers/RRHO/cluster_",i,"_",j,".csv"), row.names = T)   }
   }
@@ -190,26 +191,6 @@ GABAergic_D2_MSN_female <- GABAergic_D2_MSN_female[GABAergic_D2_MSN_female$X %in
 RRHO_obj <-  RRHO2_initialize(GABAergic_D2_MSN_male, GABAergic_D2_MSN_female, labels = c("GABAergic - D2 MSN male", "GABAergic - D2 MSN female"), log10.ind=TRUE,method = "hyper")
 
 pdf("/path/to/figures/RRHO_figure/RRHO_Heatmap_GABAergic - D2 MSN.pdf",width=6,height=6)
-RRHO2_heatmap(RRHO_obj)
-dev.off()
-
-# GABAergic CALB2
-GABAergic_CALB2_male <- read.csv("/path/to/results/DE/FindMarkers/RRHO/cluster_GABAergic - CALB2_male.csv")
-GABAergic_CALB2_male$RRHO_score <- -log10(GABAergic_CALB2_male$p_val)*sign(GABAergic_CALB2_male$avg_log2FC)
-GABAergic_CALB2_female <- read.csv("/path/to/results/DE/FindMarkers/RRHO/cluster_GABAergic - CALB2_female.csv")
-GABAergic_CALB2_female$RRHO_score <- -log10(GABAergic_CALB2_female$p_val)*sign(GABAergic_CALB2_female$avg_log2FC)
-
-GABAergic_CALB2_genes <- intersect(GABAergic_CALB2_male$X,GABAergic_CALB2_female$X)
-#remove genes on sex chromosomes
-GABAergic_CALB2_genes <- GABAergic_CALB2_genes[!(GABAergic_CALB2_genes %in% sex_genes)]
-
-GABAergic_CALB2_male <- GABAergic_CALB2_male[GABAergic_CALB2_male$X %in% GABAergic_CALB2_genes, c("X","RRHO_score")]
-GABAergic_CALB2_female <- GABAergic_CALB2_female[GABAergic_CALB2_female$X %in% GABAergic_CALB2_genes, c("X","RRHO_score")]
-
-
-RRHO_obj <-  RRHO2_initialize(GABAergic_CALB2_male, GABAergic_CALB2_female, labels = c("GABAergic - CALB2 male", "GABAergic - CALB2 female"), log10.ind=TRUE,method = "hyper")
-
-pdf("/path/to/figures/RRHO_figure/RRHO_Heatmap_GABAergic - CALB2.pdf",width=6,height=6)
 RRHO2_heatmap(RRHO_obj)
 dev.off()
 

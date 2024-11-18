@@ -1,6 +1,7 @@
 ---
 title: "MOFA+ scMultiome - CN cocaine"
-author: "Lea & Eric Zillich"
+author: "Lea Zillich and Eric Zillich"
+date: "10/10/2024"
 output: html_document
 ---
 
@@ -34,73 +35,10 @@ reticulate::use_python("/path/to/anaconda3/bin/python", required=TRUE)
 ## Import object
 
 ```{r importObject,warning=FALSE, message=FALSE, results='hide'}
-seurat <- readRDS(file = "/path/to/data/4_Cell_types_harmony.rds")
+seurat <- readRDS(file = "/path/to/data/6_post_DE.rds")
 
-#import position specific weight matrices
-
-pfm <- getMatrixSet(JASPAR2020,
-  opts = list(species = "Homo sapiens"))
 ```
 
-
-```{r annotate region,warning=FALSE, message=FALSE, results='hide'}
-# Problem: we called the peaks again using macs2 while merging the object, thus the reference peak annotation as determined by cellranger arc is not valid anymore: We need to annotate our common peaks in the final object to promoter/distal based on the cellranger reference file for TSS information. This is done using bedtools:
-
-#Export to run an overlap analysis in bedtools
-peaks_df <- as.data.frame(seurat@assays$ATAC@ranges)
-peaks_df <- peaks_df[,1:5]
-write.table(peaks_df,"/path/to/data/peak_anno_bedtools/peaks_new.txt",sep="\t",col.names=F,row.names = F,quote=F)
-
-# $ sortBed -i /path/to/data/peak_anno_bedtools/peaks_new.txt > /path/to/data/peak_anno_bedtools/peaks_sorted.txt
-# $ sortBed -i /zi-flstorage/group_genepi/shared-scRNAseq/reference/refdata-cellranger-arc-GRCh38-2020-A-2.0.0/regions/tss.bed > /path/to/data/peak_anno_bedtools/tss_sorted.txt
-# $ bedtools closest -a /path/to/data/peak_anno_bedtools/peaks_sorted.txt -b /path/to/data/peak_anno_bedtools/tss_sorted.txt -D b > /path/to/data/peak_anno_bedtools/closest.bed
-
-# Import annotation
-peak_anno <- read.delim("/path/to/data/peak_anno_bedtools/closest.bed", header=FALSE)
-
-# Define category "distal" or "promoter" based on Cellranger categories
-peak_anno$anno <- ifelse(peak_anno$V12 <= 1000 & peak_anno$V12 >= -100, "promoter","distal")
-
-# Remove non-unique mappings, keep peaks that are in the middle of two annotated genes (V12=0 means that the peak is within promoter region of one gene that has multiple TSS annotations)
-dup <- peak_anno[duplicated(peak_anno[,c(1:3)]),]
-peak_anno <- peak_anno[!(rownames(peak_anno) %in% rownames(dup)), ]
-
-peak_anno <- peak_anno[,c("V1","V2","V3","V4","V5","anno")]
-colnames(peak_anno)[1:5] <- colnames(peaks_df)
-
-
-peak_anno$peak <- paste(peak_anno$seqnames,peak_anno$start,peak_anno$end,sep="-")
-```
-
-
-```{r feature metadata,warning=FALSE, message=FALSE, results='hide'}
-##Create two separate ChromatinAssays containing distal and promoter peaks
-
-ATAC_dat <- seurat@assays$ATAC
-
-#distal
-peaks.granges_distal <- peak_anno[peak_anno$anno == "distal",]
-peaks.granges_distal <-peaks.granges_distal[,c("seqnames","start","end","peak")]  
-fwrite(peaks.granges_distal,"/path/to/data/granges_distal.txt")
-
-# Subset ChromatinAssay and assign to new assay - distal
-ATAC_dat_distal <- ATAC_dat[which(rownames(ATAC_dat) %in% peaks.granges_distal$peak),]
-distal <- subset(ATAC_dat,features = rownames(ATAC_dat_distal))
-
-seurat@assays[["ATAC_distal"]] <- distal
-  
-# promoter 
-peaks.granges_promoter <- peak_anno[peak_anno$anno == "promoter",]
-peaks.granges_promoter <-peaks.granges_promoter[,c("seqnames","start","end","peak")]  
-
-fwrite(peaks.granges_promoter,"/path/to/data/granges_promoter.txt")
-
-# Subset ChromatinAssay and assign to new assay - promoter
-ATAC_dat_promoter <- ATAC_dat[which(rownames(ATAC_dat) %in% peaks.granges_promoter$peak),]
-promoter <- subset(ATAC_dat,features = rownames(ATAC_dat_promoter))
-
-seurat@assays[["ATAC_promoter"]] <- promoter
-```
 
 ## MOFA
 
@@ -127,9 +65,6 @@ for (i in c("ATAC_distal","ATAC_promoter")) {
 ```
 
 ```{r Apache207(seurat), warning=FALSE, message=FALSE, results='hide'}
-
-
-saveRDS(seurat,"/path/to/data/5_MOFA.rds")
 
 mofa <- create_mofa(seurat, assays = c("RNA","ATAC_distal","ATAC_promoter"),slot="data",extract_metadata = T)
 model_opts <- get_default_model_options(mofa)

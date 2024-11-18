@@ -20,8 +20,8 @@ library(data.table)
 
 ## Import object
 ```{r importObject,warning=FALSE, message=FALSE, results='hide'}
-seurat <- readRDS(file = "/path/to/data/6_LinkedPeaks.rds")
-
+seurat <- readRDS(file = "/path/to/data/6_post_DE.rds")
+Idents(seurat) <- "celltypes"
 D1 <- WhichCells(seurat, idents = c("GABAergic - D1 MSN"))
 D2 <- WhichCells(seurat, idents = c("GABAergic - D2 MSN"))
 
@@ -46,18 +46,21 @@ pfm <- getMatrixSet(JASPAR2020,
   opts = list(species = "Homo sapiens"))
 
 #select candidate genes that are expressed in the dataset
-can_genes <- fread("/path/to/results/DE/FindMarkers/clusterGABAergic - D1 MSN.csv") #use gene list of choosing
+can_genes_1 <- fread("/path/to/results/DE/FindMarkers/all/clusterGABAergic - D1 MSN.csv")
+can_genes_2 <- fread("/path/to/results/DE/FindMarkers/all/clusterGABAergic - D2 MSN.csv")
+can_genes <- rbind(can_genes_1,can_genes_2)
+can_genes <- can_genes[!(duplicated(can_genes$V1)),]
 
 #read in transcription factors
-tfs <- read.table("/path/to/Multiome_Tutorial/Homo_sapiens_TF.txt", sep="\t", header=T)
+tfs <- read.table("/zi/flstorage/group_genepi/data/EP/Multiome_Tutorial/Homo_sapiens_TF.txt", sep="\t", header=T)
 
 
 df_pfm <- data.frame(t(sapply(pfm, function(x)
-  c(id=x@ID, name=x@name, symbol=ifelse(!is.null(x@tags$symbol),x@tags$symbol,x@name))))) # unclear in vignette
+  c(id=x@ID, name=x@name, symbol=ifelse(!is.null(x@tags$symbol),x@tags$symbol,x@name))))) 
 
 
 # Make dataset compatible for the initiate_grn function
-motif2tf_use <- merge(can_genes[,1],df_pfm, by.x="V1",by.y = "name")
+motif2tf_use <- merge(can_genes[,1],df_pfm,by.x="V1", by.y = "name")
 motif2tf_use <-motif2tf_use[!(duplicated(motif2tf_use)),]
 
 motifs_use <- pfm[unique(motif2tf_use$id)]
@@ -107,9 +110,12 @@ MSN <- find_modules(
 modules <- NetworkModules(MSN)
 meta <-modules@meta
 
-plot_gof(MSN, point_size=3)
+p_0_1 <- plot_gof(MSN, point_size=3)
+ggsave("/path/to/figures/Pando/MSN_graph_1.pdf",p_0_1,width=6,height=6)
 
-plot_module_metrics(MSN)
+p_0_2 <-plot_module_metrics(MSN)
+ggsave("/path/to/figures/Pando/MSN_graph_2.pdf",p_0_2,width=6,height=6)
+
 
 MSN <- get_network_graph(
     MSN, 
@@ -118,7 +124,7 @@ MSN <- get_network_graph(
 )
 
 p1 <- plot_network_graph(MSN, graph='full_graph', layout='fr', text_size=5)
-ggsave("/path/to/results/Pando/MSN.pdf",p1,width=6,height=6)
+ggsave("/path/to/figures/Pando/MSN.pdf",p1,width=6,height=6)
 
 ```
 
@@ -132,9 +138,9 @@ write.table(grn,"/path/to/results/Pando/GRN_table.txt",sep=";",quote=F, row.name
 
 
 hist(unname(sort(table(grn$target),decreasing = T)))
-quantile(unname(sort(table(grn$target),decreasing = T)),probs=c(0.05,0.25,0.5,0.75,0.95))
-# 5% 25% 50% 75% 95% 
-# 1   2   5   9  17 
+quantile(unname(sort(table(grn$target),decreasing = T)),probs=c(0.05,0.25,0.5,0.75,0.90,0.95))
+ #5%   25%   50%   75%   90%   95% 
+ #1.00  2.00  6.00 11.00 17.00 21.95 
 target_candidates <- names(sort(table(grn$target)))[unname(sort(table(grn$target))) >=17]
 write.table(target_candidates,"/path/to/results/Pando/GRN_target_candidates.txt",sep=" ",quote=F, row.names = F,col.names = T)
 
@@ -171,7 +177,7 @@ res_df <- data.frame(regulon=colnames(regulons)[c(4:length(colnames(regulons)))]
 
 for(i in colnames(regulons)[c(4:length(colnames(regulons)))]){
   
-  reg_CUD <- regulons[,i][regulons$CUD=="CUD"]
+  reg_CUD <- regulons[,i][regulons$CUD=="CocUD"]
   reg_Ctrl <- regulons[,i][regulons$CUD=="Ctrl"]
   t <- wilcox.test( reg_CUD , reg_Ctrl,conf.int = T,alternative = "two.sided")
   
@@ -204,11 +210,20 @@ res_df$lab <- c(rep("yes",times=5),rep("no",times=length(res_df$regulon)-15),rep
 # Visualize in waterfall plot
 library(ggrepel)
 reg <- ggplot(res_df, aes(regulon, score,label=regulon)) +
-  geom_point(size=0.5)+geom_text_repel(hjust=0, vjust=0,max.overlaps=3, nudge_y = 0.1, size = 3.5,data = subset(res_df,lab=="yes"))+ylab("regulon size * foldChange in CUD")+ theme(axis.title.x=element_blank(),
+  geom_point(size=0.5)+geom_text_repel(hjust=0, vjust=0,max.overlaps=3, nudge_y = 0.1, size = 3,data = subset(res_df,lab=="yes"))+ylab("regulon size * foldChange in CocUD")+ theme(axis.title.x=element_blank(),
         axis.text.x=element_blank(),
         axis.ticks.x=element_blank(),text=element_text(size=16))+theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
 panel.background = element_blank(), axis.line = element_line(colour = "black"))+geom_hline(yintercept=0)+scale_y_continuous(breaks=seq(-150,150,30))
 ggsave("/path/to/results/Pando/MSN_regulons.pdf",reg,width=7,height=6)
+
+# dotchart S3C
+res_df <- res_df[order(res_df$score,decreasing=T),]
+res_df2 <-res_df[c(1:5,86:90),]
+res_df2$status <- c(rep("up",times=5),rep("down",times=5))
+
+library(ggpubr)
+p_dotchart <- ggdotchart(res_df2, x = "regulon", y = "score",color="status",palette=c("#00BFC4","#F8766D"), ggtheme = theme_pubr(base_size = 10), dot.size=6, font.label =list(color="black",size=9,vjust=0.5),add = "segment", label=res_df2$length, ylab = "regulon size * foldChange in CocUD") +xlab("")+ylim(-110, 60)+coord_flip()
+ggsave("/path/to/results/Pando/Dotchart_regulons.pdf",p_dotchart,width=5,height=5)
 
 
 MSN[['regulon']] <- CreateAssayObject(data = t(cbind(mod_act_pos, mod_act_neg)))
@@ -228,7 +243,7 @@ p1 <- FeaturePlot(MSN,
                   cols = beach_colscheme(30),
                   order = T,ncol=2,split.by = "CUD",combine=F)
 p1 <- lapply(p1,function(p){
-  p+xlim(c(-12.5,-5))+ylim(c(-8,8))+NoAxes()
+  p+xlim(c(5,15))+ylim(c(-5,10))+NoAxes()
 })
 library(patchwork)
 p11<- wrap_plots(p1,ncol=2)
@@ -245,7 +260,7 @@ p2 <- FeaturePlot(MSN,
                   ncol = 2,split.by = "CUD",combine=F) 
 
 p2 <- lapply(p2,function(p){
-  p+xlim(c(-12.5,-5))+ylim(c(-8,8))+NoAxes()
+  p+xlim(c(5,15))+ylim(c(-5,10))+NoAxes()
 })
 
 p21<- wrap_plots(p2,ncol=2)
@@ -258,7 +273,7 @@ p3 <- FeaturePlot(MSN,
                   order = T,
                   ncol = 2,split.by = "CUD",combine=F)
 p3 <- lapply(p3,function(p){
-  p+xlim(c(-12.5,-5))+ylim(c(-8,8))+NoAxes()
+  p+xlim(c(5,15))+ylim(c(-5,10))+NoAxes()
 })
 
 p31 <- wrap_plots(p3,ncol=2)
@@ -308,20 +323,20 @@ ggsave("/path/to/results/Pando/MSN_comb_GO.pdf",p_comb,width=8,height=8)
 # Visualize tracks for peaks in gene indetified by GRN - CACNA1C
 ```{r tracks,warning=FALSE, message=FALSE, results='hide'}
 ### Plot tracks for binding peak ####
-ob <- readRDS(file = "/path/to/data/6_LinkedPeaks.rds")
-
-
+ob <- readRDS(file = "/path/to/data/5_LinkedPeaks.rds")
 
 to_tf <- 'CACNA1C'
 Idents(ob) <- "celltypes"
+
 MSN <- subset(ob,idents=c("GABAergic - D1 MSN","GABAergic - D2 MSN"))
+DefaultAssay(MSN) <- "ATAC"
 annot <- Annotation(MSN)
 annot <- annot[annot$gene_name==to_tf]
 
 annot_ex <- Extend(annot, upstream = 100000)
 region <- GRanges(seqnames = as.character(seqnames(annot_ex))[[1]], ranges = IRanges(start = min(start(annot_ex)), end = max(end(annot_ex))))
 
-# region <- resize(region, width = 30000, fix='start')
+#region <- resize(region, width = 30000, fix='start')
 
 library(stringr)
 binding_regions <- modules@meta %>% filter(target==to_tf) %>% pull(regions) %>% str_split(';')%>% unlist()%>%StringToGRanges()
@@ -348,20 +363,24 @@ p_mot <- ggplot(binding_regions) +
   scale_color_gradientn(colors=pals::brewer.greys(10)) +  ggnewscale::new_scale_color() +
   geom_text_repel(
     aes(x=(start+end)/2, y=0, color=factor(sign(estimate)), label=tf), 
-    size=5/ggplot2::.pt, max.overlaps = 100, nudge_y=-100, angle=90, force=1,
+    size=5/ggplot2::.pt, max.overlaps = 2.5, nudge_y=-100, angle=90, force=1,
       
   ) +
   scale_color_manual(values=c('#20877B', '#882160'))+
   xlim(c(start(region), end(region))) +
   no_legend()
 
+MSN$CocUD <- ""
+MSN$CocUD[MSN$CUD=="CocUD"]<-"CocUD"
+MSN$CocUD[MSN$CUD=="Ctrl"]<-"Ctrl"
+MSN$CocUD <- as.factor(MSN$CocUD)
+
 p_cov <- CoveragePlot(MSN,
   region = region, 
-  group.by = 'CUD', 
+  group.by = "CocUD",
   annotation = FALSE,
   peaks = FALSE
-) &
-  theme_void() & no_legend() & theme(strip.text = element_blank())
+) + scale_fill_manual(values=c("#F8766D","#00BFC4")) + theme_void()  
 
 p_an <- AnnotationPlot(
   MSN,
@@ -375,9 +394,7 @@ p_pe <- PeakPlot(
 
 library(patchwork)
 p_final <- p_cov / p_an / p_pe / p_mot + plot_layout(heights=c(5,2,2,1.5)) & theme(text = element_text(size=10))
-ggsave("/path/to/results/Pando/MSN_CACNA1C.pdf",p_final,width=5,height=5)
-
-
+ggsave("/path/to/results/Pando/MSN_CACNA1C.pdf",p_final,width=6,height=6)
 ```
 
 
@@ -387,8 +404,8 @@ ggsave("/path/to/results/Pando/MSN_CACNA1C.pdf",p_final,width=5,height=5)
 ### Plot tracks for binding peak ####
 
 to_tf <- 'PDE10A'
-Idents(ob) <- "celltypes"
-MSN <- subset(ob,idents=c("GABAergic - D1 MSN","GABAergic - D2 MSN"))
+#Idents(ob) <- "celltypes"
+#MSN <- subset(ob,idents=c("GABAergic - D1 MSN","GABAergic - D2 MSN"))
 annot <- Annotation(MSN)
 annot <- annot[annot$gene_name==to_tf]
 
@@ -422,20 +439,24 @@ p_mot <- ggplot(binding_regions) +
   scale_color_gradientn(colors=pals::brewer.greys(10)) +  ggnewscale::new_scale_color() +
   geom_text_repel(
     aes(x=(start+end)/2, y=0, color=factor(sign(estimate)), label=tf), 
-    size=5/ggplot2::.pt, max.overlaps = 100, nudge_y=-100, angle=90, force=1,
+    size=5/ggplot2::.pt, max.overlaps = 3.5, nudge_y=-100, angle=90, force=1,
       
   ) +
   scale_color_manual(values=c('#20877B', '#882160'))+
   xlim(c(start(region), end(region))) +
   no_legend()
 
+MSN$CocUD <- ""
+MSN$CocUD[MSN$CUD=="CocUD"]<-"CocUD"
+MSN$CocUD[MSN$CUD=="Ctrl"]<-"Ctrl"
+MSN$CocUD <- as.factor(MSN$CocUD)
+
 p_cov <- CoveragePlot(MSN,
   region = region, 
-  group.by = 'CUD', 
+  group.by = "CocUD",
   annotation = FALSE,
   peaks = FALSE
-) &
-  theme_void() & no_legend() & theme(strip.text = element_blank())
+) + scale_fill_manual(values=c("#F8766D","#00BFC4")) + theme_void()  
 
 p_an <- AnnotationPlot(
   MSN,
@@ -449,7 +470,7 @@ p_pe <- PeakPlot(
 
 library(patchwork)
 p_final <- p_cov / p_an / p_pe / p_mot + plot_layout(heights=c(5,2,2,1.5)) & theme(text = element_text(size=10))
-ggsave("/path/to/results/Pando/MSN_PDE10A.pdf",p_final,width=5,height=5)
+ggsave("/path/to/results/Pando/MSN_PDE10A.pdf",p_final,width=6,height=6)
 
 
 ```
@@ -463,17 +484,33 @@ ggsave("/path/to/results/Pando/MSN_PDE10A.pdf",p_final,width=5,height=5)
 #/path/to/results/Pando/GRN_target_candidates.txt
 # Downloaded the results from DGIdb
 
-DGI <- read.delim("/path/to/results/Pando/DGIdb/gene_interaction_results-4_4_2024.tsv")
+DGI <- read.delim("/path/to/results/Pando/DGIdb/gene_interaction_results-11_12_2024.tsv")
 DGI <- DGI[order(DGI$interaction.score,decreasing = T),]
 
 # Rename PDE10A as it has a LINC ID here 
 DGI$gene[DGI$gene=="LINC00473"]<-"PDE10A"
-write.table(DGI,"/path/to/results/Pando/DGIdb/DGIdb_sorted_by_interaction_score_all.txt",sep="\t",quote=F,row.names = F,col.names = T)
+write.table(DGI,"/path/to/results/Pando/DGIdb/DGIdb_sorted_by_interaction_score_all.txt",sep="/",quote=F,row.names = F,col.names = T)
 
 # Filter for approved drugs only 
 DGI_appr <- DGI[DGI$regulatory.approval=="Approved",]
-write.table(DGI_appr,"/path/to/results/Pando/DGIdb/DGIdb_sorted_by_interaction_score_approved_only.txt",sep="\t",quote=F,row.names = F,col.names = T)
+write.table(DGI_appr,"/path/to/results/Pando/DGIdb/DGIdb_sorted_by_interaction_score_approved_only.txt",sep=";",quote=F,row.names = F,col.names = T)
 
+
+#read in DE data
+library(readr)
+D1_MSN <- read_csv("/path/to/results/DE/FindMarkers/all/clusterGABAergic - D1 MSN.csv")
+D1_MSN <- D1_MSN[,c("...1","avg_log2FC")]
+colnames(D1_MSN) <- c("gene", "D1_log2FC")
+
+D2_MSN <- read_csv("/path/to/results/DE/FindMarkers/all/clusterGABAergic - D2 MSN.csv")
+D2_MSN <- D2_MSN[,c("...1","avg_log2FC")]
+colnames(D2_MSN) <- c("gene", "D2_log2FC")
+
+#merge log2FCs
+DGI <- merge(DGI, D1_MSN, by="gene", all.x=T)
+DGI <- merge(DGI, D2_MSN, by="gene", all.x=T)
+DGI <- DGI[order(DGI$interaction.score,decreasing = T),]
+write.table(DGI,"/path/to/results/Pando/DGIdb/DGIdb_sorted_by_interaction_score_all.txt",sep="/",quote=F,row.names = F,col.names = T)
 
 ```
 

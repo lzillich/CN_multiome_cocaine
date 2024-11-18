@@ -20,28 +20,30 @@ library(AnnotationHub)
 
 ```{r Step 1a: import filtered files}
 
-#read cellranger-arc input
-sample1 <- readRDS("/path/to/data/postQC/sample1.rds")
-sample2 <- readRDS("/path/to/data/postQC/sample2.rds")
-sample3 <- readRDS("/path/to/data/postQC/sample3.rds")
-sample5 <- readRDS("/path/to/data/postQC/sample5.rds")
-sample6 <- readRDS("/path/to/data/postQC/sample6.rds")
-sample7 <- readRDS("/path/to/data/postQC/sample7.rds")
-sample8 <- readRDS("/path/to/data/postQC/sample8.rds")
-sample9 <- readRDS("/path/to/data/postQC/sample9.rds")
-sample10 <- readRDS("/path/to/data/postQC/sample10.rds")
-sample11 <- readRDS("/path/to/data/postQC/sample11.rds")
-sample12 <- readRDS("/path/to/data/postQC/sample12.rds")
-sample13 <- readRDS("/path/to/data/postQC/sample13.rds")
-sample14 <- readRDS("/path/to/data/postQC/sample14.rds")
-sample15 <- readRDS("/path/to/data/postQC/sample15.rds")
+#read filtered input
+sample1 <- readRDS("/path/to/data/preprocessing/sample1.rds")
+sample2 <- readRDS("/path/to/data/preprocessing/sample2.rds")
+sample3 <- readRDS("/path/to/data/preprocessing/sample3.rds")
+sample5 <- readRDS("/path/to/data/preprocessing/sample5.rds")
+sample6 <- readRDS("/path/to/data/preprocessing/sample6.rds")
+sample7 <- readRDS("/path/to/data/preprocessing/sample7.rds")
+sample8 <- readRDS("/path/to/data/preprocessing/sample8.rds")
+sample9 <- readRDS("/path/to/data/preprocessing/sample9.rds")
+sample10 <- readRDS("/path/to/data/preprocessing/sample10.rds")
+sample11 <- readRDS("/path/to/data/preprocessing/sample11.rds")
+sample12 <- readRDS("/path/to/data/preprocessing/sample12.rds")
+sample13 <- readRDS("/path/to/data/preprocessing/sample13.rds")
+sample14 <- readRDS("/path/to/data/preprocessing/sample14.rds")
+sample15 <- readRDS("/path/to/data/preprocessing/sample15.rds")
 
 ```
 
 ## Combine Objects and Redo Peak Calling
 
 ```{r combine datasets}
-seurat <- merge(x = sample1, y = list(sample2, sample3, sample5, sample6, sample7, sample8, sample9, sample10, sample11, sample12, sample13, sample14, sample15), add.cell.ids = c("ID1","ID2","ID3","ID5","ID6","ID7","ID8","ID9","ID10","ID11","ID12","ID13","ID14","ID15"))
+seurat <- merge(x = sample1, y = list(sample2, sample3, sample5, sample6, sample7, sample8, sample9, sample10, sample11, sample12, sample13, sample14, sample15))
+
+saveRDS(seurat,"/path/to/data/merged.rds")
 
 #call peaks
 
@@ -49,17 +51,17 @@ peaks <- reduce(unlist(as(c(sample1@assays$ATAC@ranges,
                             sample2@assays$ATAC@ranges,
                             sample3@assays$ATAC@ranges,
                             sample5@assays$ATAC@ranges,
-                          sample6@assays$ATAC@ranges,
-                          sample7@assays$ATAC@ranges,
-                          sample8@assays$ATAC@ranges,
-                          sample9@assays$ATAC@ranges,
-                          sample10@assays$ATAC@ranges,
-                          sample11@assays$ATAC@ranges,
-                          sample12@assays$ATAC@ranges,
-                          sample13@assays$ATAC@ranges,
-                          sample14@assays$ATAC@ranges,
-                          sample15@assays$ATAC@ranges),
-                          "GRangesList")))
+                            sample6@assays$ATAC@ranges,
+                            sample7@assays$ATAC@ranges,
+                            sample8@assays$ATAC@ranges,
+                            sample9@assays$ATAC@ranges,
+                            sample10@assays$ATAC@ranges,
+                            sample11@assays$ATAC@ranges,
+                            sample12@assays$ATAC@ranges,
+                            sample13@assays$ATAC@ranges,
+                            sample14@assays$ATAC@ranges,
+                            sample15@assays$ATAC@ranges),
+                            "GRangesList")))
 peakwidths <- width(peaks)
 peaks <- peaks[peakwidths < 10000 & peakwidths > 20]
 
@@ -92,6 +94,7 @@ seurat[['ATAC']] <- CreateChromatinAssay(counts_atac,
 
 library(BSgenome.Hsapiens.UCSC.hg38)
 standard_chroms <- standardChromosomes(BSgenome.Hsapiens.UCSC.hg38)
+#standard_chroms <- standard_chroms[1:22] #use only autosomes
 idx_standard_chroms <- which(as.character(seqnames(granges(seurat[['ATAC']]))) %in% standard_chroms)
 
 seurat[["ATAC"]] <- subset(seurat[["ATAC"]],

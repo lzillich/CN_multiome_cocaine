@@ -17,7 +17,7 @@ library(Seurat)
 
 ## Import integrated object
 ```{r importObject}
-sc <- readRDS(file = "/path/to/data/6_LinkedPeaks.rds")
+sc <- readRDS("/path/to/data/5_LinkedPeaks.rds")
 DefaultAssay(sc) <- "RNA"
 ```
 

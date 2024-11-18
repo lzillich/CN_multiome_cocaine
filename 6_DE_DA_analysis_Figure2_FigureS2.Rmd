@@ -21,17 +21,23 @@ library(ComplexHeatmap)
 
 # Import data
 ```{r importObject, echo=FALSE}
-#seurat <- readRDS("/path/to/data/4_cell_types_harmony_24.rds")
+#seurat <- readRDS("/path/to/data/4_cell_types_harmony.rds")
 #seurat@meta.data$cluster_condition <- paste0(seurat@meta.data$CUD,"_",seurat@meta.data$celltypes)
+#seurat <- RegionStats(seurat,assay="ATAC", genome = BSgenome.Hsapiens.UCSC.hg38)
 #seurat <- LinkPeaks(seurat, peak.assay = "ATAC",expression.assay = "RNA")
-#saveRDS(seurat,"/path/to/data/6_LinkedPeaks.rds")
-seurat <- readRDS("/path/to/data/6_LinkedPeaks.rds")
+#saveRDS(seurat,"/path/to/data/5_LinkedPeaks.rds")
+seurat <- readRDS("/path/to/data/5_LinkedPeaks.rds")
+
+DimPlot(seurat, reduction="umap_int")
 ```
 
 # Differential Expression Analysis
 
 ```{r DE, echo=FALSE}
 DefaultAssay(seurat) <- "RNA"
+seurat@meta.data$cluster_condition <- paste(seurat@meta.data$CUD, seurat@meta.data$celltypes, sep="_")
+
+Idents(seurat) <- "cluster_condition"
 
 for (i in unique(seurat@meta.data$celltypes)){
 
@@ -39,7 +45,15 @@ markers_cl <- FindMarkers(seurat,ident.1 = paste0("CocUD_",i), ident.2 = paste0(
 head(markers_cl,100)
 
 write.csv(markers_cl, paste0("/path/to/results/DE/FindMarkers/cluster",i,".csv"), row.names = T)
+}
 
+
+for (i in celltypes){
+
+markers_cl <- FindMarkers(test,ident.1 = paste0("CocUD_",i), ident.2 = paste0("Ctrl_",i), assay = "RNA",logfc.threshold = 0, min.pct = 0)
+head(markers_cl,100)
+
+write.csv(markers_cl, paste0("/path/to/results/DE/FindMarkers/all/cluster",i,".csv"), row.names = T)
 }
 ```
 
@@ -150,6 +164,7 @@ lab_genes <- lab_genes[-grep("RPS|RPL|XIST|MT-|AC|AL",lab_genes)]
 lab[!(lab %in% lab_genes)] <- ""
 lab_genes <- unique(lab_genes)
 
+
 # Plot heatmap
 library(ComplexHeatmap)
 pdf("/path/to/figures/Figure2a_DEG_hm.pdf",width=4,height=8)
@@ -163,7 +178,7 @@ dev.off()
 library(UpSetR)
 cell_list <- list(Astrocyte = Astrocyte_sig$X,OPC = OPC_sig$X,Oligodendrocyte=Oligodendrocyte_sig$X,Microglia=Microglia_sig$X,D1MSN=D1MSN_sig$X,D2MSN=D2MSN_sig$X,D1MSN_ADARB2=D1MSN_ADARB2_sig$X,GABAergic_CALB2=GABA_CALB2_sig$X,GABAergic_PTHLH_PVALB=GABAergic_PTHLH_PVALB_sig$X)
 
-pdf("/path/to/figures/Figure2b_Upset_DEG.pdf",width=6,height=4)
+pdf("/path/to/figures/Figure2b_Upset_DEG.pdf",width=7,height=5.5)
 upset(fromList(cell_list),nsets = 9,nintersects = 30,sets.x.label = "DE genes",mainbar.y.label = "DE gene overlap",order.by = "freq")
 dev.off()
 ```
@@ -181,9 +196,10 @@ library(enrichplot)
 
 both_dir_GO <- compareCluster(geneClusters = GO_both_dir,fun = "enrichGO",OrgDb = org.Hs.eg.db,keyType = "SYMBOL",pvalueCutoff=0.05,ont="ALL")
 both_dir_GO <-pairwise_termsim(both_dir_GO)
-p3 <- emapplot(both_dir_GO,legend_n=3,cex_line=0.1,cex_label_category=0.85,layout="nicely",cex_category=0.8,showCategory=16,pie="count")+scale_fill_manual(values=c("#F7AB64","#74BA59","#70305A", "#E8326D", "#3A9BCC","#85CEE4","#003E65","#BFE1D7","#D1BCDC"))
-ggsave("/path/to/figures/Figure2c_GO_both_dir_new.pdf",p3,height=8,width=8)
-ggsave("/path/to/figures/Figure2c_GO_both_dir_new_legend.pdf",p3,height=18,width=18)
+res_GO <- both_dir_GO@compareClusterResult
+fwrite(res_GO, "/path/to/results/DE/GO.csv", sep=",")
+p3 <- emapplot(both_dir_GO,legend_n=3,cex_line=0.1,cex_label_category=0.9,layout="nicely",cex_category=0.8,showCategory=16,pie="count")+scale_fill_manual(values=c("#F7AB64","#74BA59","#70305A", "#E8326D", "#3A9BCC","#85CEE4","#003E65","#BFE1D7","#D1BCDC"))
+ggsave("/path/to/figures/Figure2c_GO_both_dir_new.pdf",p3,height=8,width=9.5)
 
 list_KEGG <- list(Astrocyte=c(as.character(mapIds(org.Hs.eg.db,  unique(Astrocyte_sig$X), 'ENTREZID', 'SYMBOL'))),Microglia=c(as.character(mapIds(org.Hs.eg.db,  unique(Microglia_sig$X), 'ENTREZID', 'SYMBOL'))),Oligodendrocyte=c(as.character(mapIds(org.Hs.eg.db,  unique(Oligodendrocyte_sig$X), 'ENTREZID', 'SYMBOL'))),OPC=c(as.character(mapIds(org.Hs.eg.db,  unique(OPC_sig$X), 'ENTREZID', 'SYMBOL'))),GABAergic_D1MSN=c(as.character(mapIds(org.Hs.eg.db,  unique(D1MSN_sig$X), 'ENTREZID', 'SYMBOL'))),GABAergic_D2MSN=c(as.character(mapIds(org.Hs.eg.db,  unique(D2MSN_sig$X), 'ENTREZID', 'SYMBOL'))),GABAergic_D1MSN_ADARB2=c(as.character(mapIds(org.Hs.eg.db,  unique(D1MSN_ADARB2_sig$X), 'ENTREZID', 'SYMBOL'))),GABAergic_CALB2=c(as.character(mapIds(org.Hs.eg.db,  unique(GABA_CALB2_sig$X), 'ENTREZID', 'SYMBOL'))),GABAergic_PTHLH_PVALB=c(as.character(mapIds(org.Hs.eg.db,  unique(GABAergic_PTHLH_PVALB_sig$X), 'ENTREZID', 'SYMBOL'))))
 
@@ -195,8 +211,8 @@ for(i in 1:length(list_KEGG)){
   
   KEGG<-pairwise_termsim(KEGG)
   
-p4 <- emapplot(KEGG,legend_n=3,cex_line=0.1,cex_label_category=0.85,layout="nicely",cex_category=0.8,showCategory=16,pie="count")+scale_fill_manual(values=c("#F7AB64","#74BA59","#70305A", "#E8326D", "#3A9BCC","#85CEE4","#003E65","#BFE1D7","#D1BCDC"))
-  ggsave("/path/to/figures/Figure2d_KEGG_multiome.pdf",p4,height=8,width=8)
+p4 <- emapplot(KEGG,legend_n=3,cex_line=0.1,cex_label_category=0.9,layout="nicely",cex_category=0.8,showCategory=14,pie="count")+scale_fill_manual(values=c("#F7AB64","#74BA59","#70305A", "#E8326D", "#3A9BCC","#85CEE4","#003E65","#BFE1D7","#D1BCDC"))
+  ggsave("/path/to/figures/Figure2d_KEGG_multiome.pdf",p4,height=9,width=9)
   
 ```
 
@@ -305,13 +321,24 @@ rownames(dfs)<-dfs$X
 # Create log2FC heatmap
 hm_DAc <- as.matrix(dfs[,-1])
 
+test_hmDAc <- t(hm_DAc)
+
 # Plot heatmap
 
-pdf("/path/to/figures/Figure2eDAc_hm.pdf",width=3,height=8)
+pdf("/path/to/figures/Figure2eDAc_hm.pdf",width=4,height=8)
 Heatmap(hm_DAc,name="log2FC",column_names_gp  = gpar(fontsize=8),column_names_rot = 45,row_labels = rep("",length=nrow(hm_DAc)))
 dev.off()
 ```
 
+# Upset plot of DA peaks shared between clusters - Figure 2
+```{r upset DA,warning=FALSE, message=FALSE, results='hide'}
+library(UpSetR)
+cell_list <- list(Astrocyte = Astrocyte_sig_peaks$X,OPC = OPC_sig_peaks$X,Oligodendrocyte=Oligodendrocyte_sig_peaks$X,Microglia=Microglia_sig_peaks$X,D1MSN=D1MSN_sig_peaks$X,D2MSN=D2MSN_sig_peaks$X,D1MSN_ADARB2=D1MSN_ADARB2_sig_peaks$X,GABAergic_CALB2=GABA_CALB2_sig_peaks$X,GABAergic_PTHLH_PVALB=GABAergic_PTHLH_PVALB_sig_peaks$X)
+
+pdf("/path/to/figures/Figure2_Upset_DAc.pdf",width=7,height=5.5)
+upset(fromList(cell_list),nsets = 9,nintersects = 30,sets.x.label = "DE genes",mainbar.y.label = "DE gene overlap",order.by = "freq")
+dev.off()
+```
 
 # Pie chart of genomic distribution of shared diff acc peaks - Figure 2f
 ```{r pie,warning=FALSE, message=FALSE, results='hide'}
@@ -432,7 +459,7 @@ rownames(chiqs_summary) <- anno$Feature
 # Write results into the chisq_summary dataframe 
 
 for (i in anno$Feature){
-  df <- data.frame(i=c(anno_merged$sum[anno_merged$region == "peaks" & anno_merged$Feature == i],anno_merged$sum[anno_merged$region == "DA" & anno_merged$Feature == i]),other=c(204152-anno_merged$sum[anno_merged$region == "peaks" & anno_merged$Feature == i],13482-anno_merged$sum[anno_merged$region == "DA" & anno_merged$Feature == i]))
+  df <- data.frame(i=c(anno_merged$sum[anno_merged$region == "peaks" & anno_merged$Feature == i],anno_merged$sum[anno_merged$region == "DA" & anno_merged$Feature == i]),other=c(203013-anno_merged$sum[anno_merged$region == "peaks" & anno_merged$Feature == i],10342-anno_merged$sum[anno_merged$region == "DA" & anno_merged$Feature == i]))
   rownames(df) <- c("peaks","DA")
   colnames(df) <- c(i,"other")
   res <- chisq.test(df)
@@ -466,8 +493,8 @@ stars <- makeStars(anno_merged$padj)
 # Plot the results
 position <- c("5' UTR","Promoter (<=1kb)","Promoter (1-2kb)","Promoter (2-3kb)","1st Exon","Other Exon","1st Intron","Other Intron","3' UTR","Downstream (<=300bp)","Distal Intergenic")
 anno_merged$region[1:11] <- rep("background",times=11)
-anno_merged$region[12:22] <- rep("DA peaks - CUD vs. Ctrl",times=11)
-anno_merged$region <- factor(anno_merged$region , levels = c("background","DA peaks - CUD vs. Ctrl"))
+anno_merged$region[12:22] <- rep("DA peaks - CocUD vs. Ctrl",times=11)
+anno_merged$region <- factor(anno_merged$region , levels = c("background","DA peaks - CocUD vs. Ctrl"))
 
 pdf("/path/to/figures/Figure2f_Enrichment_peak_anno_barplot.pdf",width=12,height=8)
 ggplot(anno_merged, aes(fill=region, y=percentage*100, x=Feature)) + xlab("") + 
@@ -476,6 +503,66 @@ dev.off()
 
 
 
+```
+
+
+```{r annotate region,warning=FALSE, message=FALSE, results='hide'}
+# Problem: we called the peaks again using macs2 while merging the object, thus the reference peak annotation as determined by cellranger arc is not valid anymore: We need to annotate our common peaks in the final object to promoter/distal based on the cellranger reference file for TSS information. This is done using bedtools:
+
+#Export to run an overlap analysis in bedtools
+peaks_df <- as.data.frame(seurat@assays$ATAC@ranges)
+peaks_df <- peaks_df[,1:5]
+write.table(peaks_df,"/path/to/data/peak_anno_bedtools/peaks_new.txt",sep="\t",col.names=F,row.names = F,quote=F)
+
+# $ sortBed -i /path/to/data/peak_anno_bedtools/peaks_new.txt > /path/to/data/peak_anno_bedtools/peaks_sorted.txt
+# $ sortBed -i /path/to/reference/refdata-cellranger-arc-GRCh38-2020-A-2.0.0/regions/tss.bed > /path/to/data/peak_anno_bedtools/tss_sorted.txt
+# $ bedtools closest -a /path/to/data/peak_anno_bedtools/peaks_sorted.txt -b /path/to/data/peak_anno_bedtools/tss_sorted.txt -D b > /path/to/data/peak_anno_bedtools/closest.bed
+
+# Import annotation
+peak_anno <- read.delim("/path/to/data/peak_anno_bedtools/closest.bed", header=FALSE)
+
+# Define category "distal" or "promoter" based on Cellranger categories
+peak_anno$anno <- ifelse(peak_anno$V12 <= 1000 & peak_anno$V12 >= -100, "promoter","distal")
+
+# Remove non-unique mappings, keep peaks that are in the middle of two annotated genes (V12=0 means that the peak is within promoter region of one gene that has multiple TSS annotations)
+dup <- peak_anno[duplicated(peak_anno[,c(1:3)]),]
+peak_anno <- peak_anno[!(rownames(peak_anno) %in% rownames(dup)), ]
+
+peak_anno <- peak_anno[,c("V1","V2","V3","V4","V5","anno")]
+colnames(peak_anno)[1:5] <- colnames(peaks_df)
+
+
+peak_anno$peak <- paste(peak_anno$seqnames,peak_anno$start,peak_anno$end,sep="-")
+```
+
+
+```{r feature metadata,warning=FALSE, message=FALSE, results='hide'}
+##Create two separate ChromatinAssays containing distal and promoter peaks
+
+ATAC_dat <- seurat@assays$ATAC
+
+#distal
+peaks.granges_distal <- peak_anno[peak_anno$anno == "distal",]
+peaks.granges_distal <-peaks.granges_distal[,c("seqnames","start","end","peak")]  
+fwrite(peaks.granges_distal,"/path/to/data/granges_distal.txt")
+
+# Subset ChromatinAssay and assign to new assay - distal
+ATAC_dat_distal <- ATAC_dat[which(rownames(ATAC_dat) %in% peaks.granges_distal$peak),]
+distal <- subset(ATAC_dat,features = rownames(ATAC_dat_distal))
+
+seurat@assays[["ATAC_distal"]] <- distal
+  
+# promoter 
+peaks.granges_promoter <- peak_anno[peak_anno$anno == "promoter",]
+peaks.granges_promoter <-peaks.granges_promoter[,c("seqnames","start","end","peak")]  
+
+fwrite(peaks.granges_promoter,"/path/to/data/granges_promoter.txt")
+
+# Subset ChromatinAssay and assign to new assay - promoter
+ATAC_dat_promoter <- ATAC_dat[which(rownames(ATAC_dat) %in% peaks.granges_promoter$peak),]
+promoter <- subset(ATAC_dat,features = rownames(ATAC_dat_promoter))
+
+seurat@assays[["ATAC_promoter"]] <- promoter
 ```
 
 # GO for distal and proximal diff acc peaks - Figure S2
@@ -548,13 +635,13 @@ peakAnno_dist <- lapply(list_peaks_dist,annotatePeak, tssRegion=c(-3000, 3000),
 
 # GO promoter peaks 
 genes_prom = lapply(peakAnno_prom, function(i) as.data.frame(i)$geneId)
-names(genes_prom) = c("OPC","Oligodendrocyte","Astrocyte","Microglia","GABAergic_D1MSN","GABAergic_D2MSN","GABAergic_CALB2","GABAergic_D1MSN_ADARB2")       
+names(genes_prom) = c("OPC","Oligodendrocyte","Astrocyte","Microglia","GABAergic_D1MSN","GABAergic_D2MSN","GABAergic_CALB2")       
 GO_prom <- compareCluster(geneCluster   = genes_prom,
                          fun           = "enrichGO",
                          pvalueCutoff  = 0.05,
                          OrgDb=org.Hs.eg.db)
 GO_prom <-pairwise_termsim(GO_prom)
-p3 <- emapplot(GO_prom,legend_n=3,cex_line=0.1,cex_label_category=0.75,layout="nicely",cex_category=0.8,showCategory=12,pie="count")+scale_fill_manual(values=c("#70305A","#F7AB64", "#85CEE4","#BFE1D7"))
+p3 <- emapplot(GO_prom,legend_n=3,cex_line=0.1,cex_label_category=0.75,layout="nicely",cex_category=0.8,showCategory=20,pie="count")+scale_fill_manual(values=c("#70305A","#F7AB64", "#85CEE4","#BFE1D7"))
 ggsave("/path/to/figures/SupFigureS2_GO_diff_peaks_prom.pdf",p3,height=8,width=8)
 
 # GO distal peaks
@@ -565,14 +652,17 @@ GO_dist <- compareCluster(geneCluster   = genes_dist,
                          pvalueCutoff  = 0.05,
                          OrgDb=org.Hs.eg.db)
 GO_dist <-pairwise_termsim(GO_dist)
-p3_1 <- emapplot(GO_dist,legend_n=3,cex_line=0.1,cex_label_category=0.75,layout="nicely",cex_category=0.8,showCategory=12,pie="count")+scale_fill_manual(values=c("#E8326D","#F7AB64", "#74BA59","#3A9BCC","#D1BCDC","#003E65"))
+p3_1 <- emapplot(GO_dist,legend_n=3,cex_line=0.1,cex_label_category=0.75,layout="nicely",cex_category=0.8,showCategory=16,pie="count")+scale_fill_manual(values=c("#E8326D","#F7AB64", "#74BA59","#3A9BCC","#D1BCDC","#003E65"))
 ggsave("/path/to/figures/SupFigureS2_GO_diff_peaks_dist.pdf",p3_1,height=8,width=8)
+
+
+
 
 ```
 
 
-
 # save data
 ```{r save Object, echo=FALSE}
-saveRDS(seurat, "/path/to/data/5_post_DE.rds")
+saveRDS(seurat, "/path/to/data/6_post_DE.rds")
+
 ```

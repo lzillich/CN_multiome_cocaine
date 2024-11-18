@@ -1,0 +1,147 @@
+
+
+---
+title: "Removal of Doublets and Filtering"
+author: "Lea & Eric Zillich"
+date: "2024/10/08"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(Seurat)
+library(Signac)
+library(Matrix)
+library(dplyr)
+library(AnnotationHub)
+library(clustree)
+library(BSgenome.Hsapiens.UCSC.hg38)
+library(GenomicRanges)
+library(future)
+library(varhandle)
+library(readxl)
+library(knitr)
+library(Seurat.utils)
+set.seed(42)
+
+```
+
+# Import cellranger-arc output 
+
+```{r Step 1a: import, warning=FALSE}
+
+counts <- Read10X("/path/to/cellranger_out/Sample9/outs/filtered_feature_bc_matrix/")
+
+# Create Seurat object containing RNA data 
+# Annotations 
+ah <- AnnotationHub()
+ensdbs <- query(ah, c("EnsDb.Hsapiens"))
+ensdb_id <- ensdbs$ah_id[grep(paste0(" 105 EnsDb"), ensdbs$title)]
+ensdb <- ensdbs[[ensdb_id]]
+seqlevelsStyle(ensdb) <- "UCSC"
+annotations <- GetGRangesFromEnsDb(ensdb = ensdb)
+genome(annotations) <- "hg38"
+
+# Create Seurat object containing RNA and ATAC data
+sample <- CreateSeuratObject(counts = counts$`Gene Expression`,
+                               assay = "RNA",project = "sample9")
+sample[['ATAC']] <- CreateChromatinAssay(counts = counts$`Peaks`,
+                                           annotation = annotations,
+                                           fragments = paste0("/path/to/cellranger_out/Sample9/outs/atac_fragments.tsv.gz"),sep = c(":", "-"),genome = 'hg38')
+
+sample <- PercentageFeatureSet(sample, pattern = "^MT-", col.name = "percent.mt", assay = "RNA")
+sample <- NucleosomeSignal(sample, assay = "ATAC")
+sample <- TSSEnrichment(sample, assay = "ATAC")
+
+sample <- subset(sample,
+                   subset = nFeature_RNA > 200 &
+                     nFeature_RNA < 6500 &
+                     percent.mt < 10 &
+                     nFeature_ATAC > 1000 &
+                     nFeature_ATAC < 25000 &
+                     TSS.enrichment > 2 &
+                     TSS.enrichment < 8 &
+                     nucleosome_signal < 2 &
+                     nucleosome_signal > 0.5)
+
+```
+
+
+```{r Step 1c: DoubletFinder, warning=FALSE}
+
+DefaultAssay(sample)<-"RNA"
+
+## Pre-process Seurat object (standard) --------------------------------------------------------------------------------------
+
+sample <- NormalizeData(sample)
+sample <- FindVariableFeatures(sample, selection.method = "vst", nfeatures = 3000)
+sample <- ScaleData(sample)
+sample <- RunPCA(sample)
+
+ElbowPlot(sample)
+
+sample <- FindNeighbors(sample, reduction = "pca", dims = 1:10)
+
+sample <- FindClusters(sample, resolution = 0.2)
+sample <- RunUMAP(sample, dims = 1:10)
+
+UMAPPlot(sample, reduction = "umap")
+
+library(DoubletFinder)
+
+## pK Identification (no ground-truth) 
+sweep.res.list <- paramSweep_v3(sample, PCs = 1:10,sct=FALSE)
+sweep.stats <- summarizeSweep(sweep.res.list, GT = FALSE)
+bcmvn <- find.pK(sweep.stats)
+
+optimal.pk <- bcmvn[which.max(bcmvn$BCmetric), "pK"]
+print(paste("Optimal pK value is:", optimal.pk))
+
+barplot(bcmvn$BCmetric, names.arg = bcmvn$pK, las =2)
+
+```
+
+#selected pk value: 0.03
+
+```{r pk value, echo=FALSE, warning=FALSE}
+
+#selected pk value: 0.03
+
+annotations <- sample@meta.data$seurat_clusters
+homotypic.prop <- modelHomotypic(annotations)  # Proportion von Homotypic Doublets
+nExp_poi <- round(0.05 * nrow(sample@meta.data))  # Annahme: 5% Doublets bei 10.000 Zellen geladen
+nExp_poi.adj <- round(nExp_poi * (1 - homotypic.prop))
+
+sample <- doubletFinder_v3(sample, PCs = 1:10, pN = 0.25, pK = 0.03, nExp = nExp_poi.adj, reuse.pANN = FALSE, sct = FALSE)
+
+DefaultAssay(sample)<-"RNA"
+
+DF.name1 = paste0("DF.classifications_", 0.25, "_", 0.03, "_", nExp_poi.adj)
+
+# Überprüfung der Ergebnisse
+p1 <- DimPlot(sample, reduction = "umap", group.by = DF.name1)
+
+p2 <- FeaturePlot(sample, features = "nFeature_RNA" )
+
+p1 + p2
+
+cowplot::plot_grid(ncol = 2, DimPlot(sample, group.by = "orig.ident") + NoAxes(), 
+    DimPlot(sample, group.by = DF.name1) + NoAxes())
+VlnPlot(sample, features = "nFeature_RNA", group.by = DF.name1, pt.size = 0.1)
+
+table(sample@meta.data[, DF.name1])
+
+sample = sample[, sample@meta.data[, DF.name1] == "Singlet"]
+
+```
+
+
+
+```{r save dataset, echo=FALSE}
+
+saveRDS(sample,"/path/to/data/preprocessing/sample9.rds")
+
+
+```
+

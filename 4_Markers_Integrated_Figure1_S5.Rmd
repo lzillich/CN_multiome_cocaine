@@ -35,34 +35,7 @@ library(SingleCellExperiment)
 
 
 ```{r import QCed dataset, warning=FALSE, message=FALSE, results='hide'}
-seurat <- readRDS("/path/to/data/3_harmony_integrated.rds")
-```
-
-# Create heatmap with Top markers 
-```{r RNA find all markers,warning=FALSE, message=FALSE, results='hide'}
-#markers <- FindAllMarkers(seurat,assay = "RNA",logfc.threshold = 0.05)
-#write.table(markers,file="/path/to/data/FindAllMarkers_output_res_02.txt",sep=";",row.names = T,quote=F)
-
-markers <- read.csv("/path/to/data/FindAllMarkers_output_res_02.txt", sep=";")
-
-# prepare marker gene dataframe
-top_markers <-data.frame(p_val=rep(0,times=200),avg_log2FC=rep(0,times=200),pct.1=rep(0,times=200),pct.2=rep(0,times=200),p_val_adj=rep(0,times=200),cluster=rep(0,times=200),gene=rep(0,times=200))
-
-for(i in c(0,1,2,3,4,5,6,7,8,9,10,11,12,13,14)){
-  markers_clust<- markers[markers$cluster == i,]
-  markers_clust_pos <- markers_clust[markers_clust$avg_log2FC > 0,][c(1:20),]
-  markers_clust_pos$cluster <-as.character(markers_clust_pos$cluster)
-  j <- 20*i+1 
-  k <- j +19
-  top_markers[j:k,] <- markers_clust_pos
-}
-
-# Create a heatmap of Top 20 marker genes
-seurat <- ScaleData(seurat,assay = "RNA")
-
-hm <- DoHeatmap(seurat,features = top_markers$gene,assay = "RNA",draw.lines = T,group.bar = T)
-ggsave("/path/to/results/Heatmap_top20_marker_genes_integrated.pdf",plot = hm,width = 38,height=22)
-
+  seurat <- readRDS("/path/to/data/3_harmony_integrated.rds")
 ```
 
 # Annotation of cell types 
@@ -73,7 +46,6 @@ DefaultAssay(seurat) <- "RNA"
 DimPlot(seurat)
 FeaturePlot(seurat, features = c("VCAN","PDGFRA","PCDH15"))
 DotPlot(object = seurat, features = c("VCAN","PDGFRA","PCDH15"))
-
 seurat$celltypes <- as.character(seurat$seurat_clusters)
 seurat$celltypes[seurat$celltypes=="4"] <- "OPC"
 ```
@@ -86,7 +58,6 @@ FeaturePlot(seurat, features = c("MBP","MOBP","PLP1"))
 DotPlot(object = seurat, features = c("MBP","MOBP","PLP1"))
 
 seurat$celltypes[seurat$celltypes == "0"] <- "Oligodendrocyte"
-seurat$celltypes[seurat$celltypes == "11"] <- "Oligodendrocyte high MT"
 ```
 
 ## Astrocytes
@@ -102,7 +73,7 @@ seurat$celltypes[seurat$celltypes=="3"] <- "Astrocyte"
 ```{r microglia, echo=TRUE,out.width="100%",warning=FALSE, message=FALSE, results='hide'}
 DefaultAssay(seurat) <- "RNA"
 FeaturePlot(seurat, features = c("CSF1R","APBB1IP","P2RY12"))
-DotPlot(object = seurat, features = c("CSF1R","APBB1IP","P2RY12","PTPRC","CD96","CD163"))
+DotPlot(object = seurat, features = c("CSF1R","APBB1IP","P2RY12"))
 
 seurat$celltypes[seurat$celltypes=="5"] <- "Microglia"
 ```
@@ -112,7 +83,7 @@ seurat$celltypes[seurat$celltypes=="5"] <- "Microglia"
 ```{r interneurons, echo=TRUE,out.width="100%",warning=FALSE, message=FALSE, results='hide'}
 DefaultAssay(seurat) <- "RNA"
 FeaturePlot(seurat, features = c("GAD1","GAD2","SLC2A1","LAMP5","PAX6","VIP","SST","PVALB","ADARB2"))
-DotPlot(object = seurat, features = c("GAD1","GAD2","SLC2A1","LAMP5","PAX6","VIP","SST","PVALB","ADARB2"))
+DotPlot(object = seurat, features = c("GAD1","GAD2","SLC2A1","LAMP5","PAX6","VIP","SST","PVALB","ADARB2","CALB2"))
 
 #D1/D2 markers from Gokce et al. 2016 Cell Rep
 
@@ -121,8 +92,17 @@ FeaturePlot(seurat, features = c("TAC1","ISL1","DRD1"))
 
 #D2 MSN
 FeaturePlot(seurat, features = c("DRD2","ADORA2A","GPR6"))
+DotPlot(seurat, features = c("DRD2","ADORA2A","GPR6","EPHA4","KCNIP1","DRD1","ADARB2","RXFP1"))
 
-DotPlot(seurat, feature=c("TAC1","ISL1","DRD1","DRD2","ADORA2A","GPR6","CHAT","PTHLH","PVALB","CALB2"))
+#D1 MSN ADARB2
+DotPlot(seurat, features = c("TAC1","ISL1","DRD1","ADARB2","DRD2"))
+
+#GABAergic CALB & OTHLH PVALB
+DotPlot(seurat, feature=c("GAD1","GAD2","ADORA2A","GPR6","CHAT","PTHLH","PVALB","CALB2"))
+
+DotPlot(seurat, feature=c("GAD1","GAD2","CCK","NPY","VIP","SST","CHAT"))
+
+FeaturePlot(seurat, features="CHAT")
 
 # Other subtypes from Munoz-Manchado et al. 2018 Cell Rep
 seurat$celltypes[seurat$celltypes=="1"] <- "GABAergic - D2 MSN"
@@ -130,19 +110,10 @@ seurat$celltypes[seurat$celltypes=="2"] <- "GABAergic - D1 MSN"
 seurat$celltypes[seurat$celltypes=="6"] <- "GABAergic - D1 MSN ADARB2"
 seurat$celltypes[seurat$celltypes=="7"] <- "GABAergic - CALB2"
 seurat$celltypes[seurat$celltypes=="8"] <- "GABAergic - PTHLH PVALB"
-seurat$celltypes[seurat$celltypes=="10"] <- "GABAergic - CCK NPY VIP SST"
-seurat$celltypes[seurat$celltypes=="14"] <- "Cholinergic - ChAT"
+seurat$celltypes[seurat$celltypes=="10"] <- "GABAergic - CCK NPY VIP SST" #contains CHAT neurons 
+seurat$celltypes[seurat$celltypes=="13"] <- "Cholinergic - ChAT"
 ```
 
-## Lymphocytes
-```{r lymphocytes, echo=TRUE,out.width="100%",warning=FALSE, message=FALSE, results='hide'}
-DefaultAssay(seurat) <- "RNA"
-FeaturePlot(seurat, features = c("CD96","CD3D","IL2RG"))
-DotPlot(object = seurat, features = c("CD96","CD3D","IL2RG"))
-
-seurat$celltypes[seurat$celltypes=="12"] <- "Lymphocyte"
-
-```
 
 ## Endothelial cells 
 ```{r endothelial, echo=TRUE,out.width="100%",warning=FALSE, message=FALSE, results='hide'}
@@ -153,33 +124,39 @@ DotPlot(object = seurat, features = c("FLT1","CLDN5","KDR"))
 seurat$celltypes[seurat$celltypes=="9"] <- "Endothelial"
 ```
 
-## Excitatory neurons
-```{r excitatory neurons, echo=TRUE,out.width="100%",warning=FALSE, message=FALSE, results='hide'}
+## Lymphocytes
+```{r lymphocytes, echo=TRUE,out.width="100%",warning=FALSE, message=FALSE, results='hide'}
 DefaultAssay(seurat) <- "RNA"
-FeaturePlot(seurat, features = c("SYT1","NRG1","RBFOX1","RYR2"))
-DotPlot(object = seurat, features = c("SYT1","NRG1","RBFOX1","RYR2"))
+FeaturePlot(seurat, features = c("CD96","CD3D","IL2RG"), reduction = "umap_int")
+DotPlot(object = seurat, features = c("CD96","CD3D","IL2RG"))
 
-seurat$celltypes[seurat$celltypes=="13"] <- "ExcitN high MT"
+seurat$celltypes[seurat$celltypes=="12"] <- "Lymphocyte"
 
+```
+
+```{r check, echo=TRUE,out.width="100%",warning=FALSE, message=FALSE, results='hide'}
+FeaturePlot(seurat, features="percent.mt",reduction="umap_int")
+FeaturePlot(seurat, features="nCount_RNA",reduction="umap_int")
+
+# remove high MT cluster 
+Idents(seurat)<-"seurat_clusters"
+seurat2 <- subset(seurat, idents=c("0","1","2","3","4","5","6","7","8","9","10","12","13"))
+seurat2$seurat_clusters <- as.character(seurat2$seurat_clusters)
+cl <- as.numeric(unname(seurat2$seurat_clusters))
+names(cl) <- names(seurat2$seurat_clusters)
+seurat2$seurat_clusters <- as.factor(cl)
 ```
 
 # Annotated object
 ```{r annotated, echo=TRUE,out.width="100%",warning=FALSE, message=FALSE, results='hide'}
-Idents(seurat) <- "celltypes"
-DimPlot(seurat,label=T)
+Idents(seurat2) <- "celltypes"
+DimPlot(seurat2,label=T,reduction="umap_int")
 ```
-
-# Remove high MT clusters
-```{r removeclust, echo=TRUE,out.width="100%",warning=FALSE, message=FALSE, results='hide'}
-Idents(seurat) <- "seurat_clusters"
-seurat2 <- subset(seurat, idents=c("0","1","2","3","4","5","6","7","8","9","10","12","14"))
-```
-
 
 
 ```{r umaps 1c-e, echo=TRUE,out.width="100%",warning=FALSE, message=FALSE, results='hide'}
-Idents(seurat) <- "celltypes"
-seurat@active.ident <- factor(seurat@active.ident,
+Idents(seurat2) <- "celltypes"
+seurat2@active.ident <- factor(seurat2@active.ident,
                                levels= c("GABAergic - D1 MSN",
                                          "GABAergic - D1 MSN ADARB2",
                                          "GABAergic - D2 MSN",
@@ -194,27 +171,54 @@ seurat@active.ident <- factor(seurat@active.ident,
                                          "Lymphocyte",
                                          "Endothelial"))
 
-DimPlot(seurat2, order=c("Lymphocyte","Endothelial","Cholinergic - ChAT","GABAergic - PTHLH PVALB", "GABAergic - CALB2", "GABAergic - D1 MSN ADARB2","GABAergic - CCK NPY VIP SST", "GABAergic - D2 MSN", "GABAergic - D1 MSN","OPC","Oligodendrocyte","Microglia","Astrocyte"),cols= c("#F7AB64","#74BA59","#70305A","#E8326D", "#3A9BCC","#85CEE4","#006960","#003E65",  "#BFE1D7","#D1BCDC","#FCD8C1","#969997","#C7361B"))
+DimPlot(seurat, order=c("Lymphocyte","Endothelial","GABAergic - PTHLH PVALB", "GABAergic - CALB2", "GABAergic - D1 MSN ADARB2","GABAergic - CCK NPY VIP", "GABAergic - D2 MSN", "GABAergic - D1 MSN","OPC","Oligodendrocyte","Microglia","Astrocyte"),cols= c("#F7AB64","#74BA59","#70305A","#E8326D","#3A9BCC","#85CEE4","#006960","#003E65","#BFE1D7","#D1BCDC","#969997","#C7361B"),reduction="umap_int")
 
-multiome <- DimPlot(seurat2, label=F, label.size=1.5,pt.size=0.000005,order=c("Lymphocyte","Endothelial","Cholinergic - ChAT","GABAergic - PTHLH PVALB", "GABAergic - CALB2", "GABAergic - D1 MSN ADARB2","GABAergic - CCK NPY VIP SST", "GABAergic - D2 MSN", "GABAergic - D1 MSN","OPC","Oligodendrocyte","Microglia","Astrocyte"),cols= c("#F7AB64","#74BA59","#70305A","#E8326D", "#3A9BCC","#85CEE4","#006960","#003E65",  "#BFE1D7","#D1BCDC","#FCD8C1","#969997","#C7361B"))+ylab("multiomeUMAP2")+xlab("multiomeUMAP1")+NoLegend()
+multiome <- DimPlot(seurat2, label=F, label.size=1.5,pt.size=0.000005,order=c("Lymphocyte","Endothelial","GABAergic - PTHLH PVALB", "GABAergic - CALB2", "GABAergic - D1 MSN ADARB2","GABAergic - CCK NPY VIP SST", "GABAergic - D2 MSN", "GABAergic - D1 MSN","OPC","Oligodendrocyte","Microglia","Astrocyte"),cols= c("#F7AB64","#74BA59","#70305A","#E8326D","#3A9BCC","#85CEE4","#006960","#003E65","#BFE1D7","#D1BCDC","#969997","#C7361B"),reduction="umap_int")+ylab("multiomeUMAP2")+xlab("multiomeUMAP1")+NoLegend()
 
-ggsave("/path/to/figures/Figure1b_multiomwe_UMAP.pdf",multiome,width=4,height=4)
+ggsave("/path/to/figures/Figure1b_multiome_UMAP.pdf",multiome,width=4,height=4)
 
-rna <- DimPlot(seurat2, label=F, label.size=1.5,reduction = "umap",pt.size=0.000005,order=c("Lymphocyte","Endothelial","Cholinergic - ChAT","GABAergic - PTHLH PVALB", "GABAergic - CALB2", "GABAergic - D1 MSN ADARB2","GABAergic - CCK NPY VIP SST", "GABAergic - D2 MSN", "GABAergic - D1 MSN","OPC","Oligodendrocyte","Microglia","Astrocyte"),cols= c("#F7AB64","#74BA59","#70305A","#E8326D", "#3A9BCC","#85CEE4","#006960","#003E65",  "#BFE1D7","#D1BCDC","#FCD8C1","#969997","#C7361B"))+ylab("rnaUMAP2")+xlab("rnaUMAP1")+NoLegend()
+multiome_lab <- DimPlot(seurat2, label=F, label.size=1.5,pt.size=0.000005,order=c("Lymphocyte","Endothelial","GABAergic - PTHLH PVALB", "GABAergic - CALB2", "GABAergic - D1 MSN ADARB2","GABAergic - CCK NPY VIP SST", "GABAergic - D2 MSN", "GABAergic - D1 MSN","OPC","Oligodendrocyte","Microglia","Astrocyte"),cols= c("#F7AB64","#74BA59","#70305A","#E8326D","#3A9BCC","#85CEE4","#006960","#003E65","#BFE1D7","#D1BCDC","#969997","#C7361B"),reduction="umap_int")+ylab("multiomeUMAP2")+xlab("multiomeUMAP1")
 
-ggsave("/path/to/figures/Figure1c_RNA_UMAP.pdf",rna,width=4,height=4)
+ggsave("/path/to/figures/Figure1b_multiome_UMAP_lab.pdf",multiome_lab,width=7,height=4)
 
-atac <- DimPlot(seurat2,reduction = "umap_harmony_atac" ,label=F, label.size=1.5,pt.size=0.000005,order=c("Lymphocyte","Endothelial","Cholinergic - ChAT","GABAergic - PTHLH PVALB", "GABAergic - CALB2", "GABAergic - D1 MSN ADARB2","GABAergic - CCK NPY VIP SST", "GABAergic - D2 MSN", "GABAergic - D1 MSN","OPC","Oligodendrocyte","Microglia","Astrocyte"),cols= c("#F7AB64","#74BA59","#70305A","#E8326D", "#3A9BCC","#85CEE4","#006960","#003E65",  "#BFE1D7","#D1BCDC","#FCD8C1","#969997","#C7361B"))+ylab("atacUMAP2")+xlab("atacUMAP1")+NoLegend()
+rna <- DimPlot(seurat2, label=F, label.size=1.5,pt.size=0.000005,order=c("Lymphocyte","Endothelial","GABAergic - PTHLH PVALB", "GABAergic - CALB2", "GABAergic - D1 MSN ADARB2","GABAergic - CCK NPY VIP SST", "GABAergic - D2 MSN", "GABAergic - D1 MSN","OPC","Oligodendrocyte","Microglia","Astrocyte"),cols= c("#F7AB64","#74BA59","#70305A","#E8326D","#3A9BCC","#85CEE4","#006960","#003E65","#BFE1D7","#D1BCDC","#969997","#C7361B"),reduction="umap")+ylab("rnaUMAP2")+xlab("rnaUMAP1")+NoLegend()
+
+ggsave("/path/to/figures/Figure1c_rna_UMAP.pdf",rna,width=4,height=4)
+
+atac <- DimPlot(seurat2,reduction = "umap_harmony_atac" ,label=F, label.size=1.5,pt.size=0.000005,order=c("Lymphocyte","Endothelial","Cholinergic - ChAT","GABAergic - PTHLH PVALB", "GABAergic - CALB2", "GABAergic - D1 MSN ADARB2","GABAergic - CCK NPY VIP SST", "GABAergic - D2 MSN", "GABAergic - D1 MSN","OPC","Oligodendrocyte","Microglia","Astrocyte"),cols= c("#F7AB64","#74BA59","#70305A","#E8326D","#3A9BCC","#85CEE4","#006960","#003E65","#BFE1D7","#D1BCDC","#969997","#C7361B"))+ylab("atacUMAP2")+xlab("atacUMAP1")+NoLegend()
+
+ggsave("/path/to/figures/Figure1d_ATAC_UMAP.pdf",atac,width=4,height=4)
 
 
-ggsave("/path/to/figures/Figure1da_ATAC_UMAP.pdf",atac,width=4,height=4)
+#covariates
+seurat2@meta.data$PMI_cat <- NA
+seurat2@meta.data$PMI_cat[seurat2@meta.data$PMI<20] <- ">20"
+seurat2@meta.data$PMI_cat[seurat2@meta.data$PMI>20&seurat2@meta.data$PMI<25] <- "20-24"
+seurat2@meta.data$PMI_cat[seurat2@meta.data$PMI>24&seurat2@meta.data$PMI<30] <- "25-29"
+seurat2@meta.data$PMI_cat[seurat2@meta.data$PMI>30&seurat2@meta.data$PMI<35] <- "30-34"
+seurat2@meta.data$PMI_cat[seurat2@meta.data$PMI>34&seurat2@meta.data$PMI<40] <- "35-40"
+
+CocUD <- DimPlot(seurat2,group.by = "CUD", label =F,reduction="umap_int")+ylab("multiomeUMAP2")+xlab("multiomeUMAP1") + ggtitle('Cocaine Use Disorder')
+ggsave("/path/to/figures/FigureS1a_CocUD_UMAP.pdf",CocUD,width=5,height=4)
+
+Donor <- DimPlot(seurat2,group.by = "donor", label =F,reduction="umap_int")+ylab("multiomeUMAP2")+xlab("multiomeUMAP1") + ggtitle('Donor')
+ggsave("/path/to/figures/FigureS1b_Donor_UMAP.pdf",Donor,width=5,height=4)
+
+Sex <- DimPlot(seurat2,group.by = "sex", label =F,reduction="umap_int")+ylab("multiomeUMAP2")+xlab("multiomeUMAP1") + ggtitle('Sex')
+ggsave("/path/to/figures/FigureS1c_sex_UMAP.pdf",Sex,width=5,height=4)
+
+PMI <- DimPlot(seurat2,group.by = "PMI_cat", label =F,reduction="umap_int")+ylab("multiomeUMAP2")+xlab("multiomeUMAP1") + ggtitle("PMI (hours)")
+ggsave("/path/to/figures/FigureS1d_PMI_UMAP.pdf",PMI,width=5,height=4)
+
+overdose <- DimPlot(seurat2,group.by = "overdose", label =F,reduction="umap_int")+ylab("multiomeUMAP2")+xlab("multiomeUMAP1") + ggtitle("overdose")
+ggsave("/path/to/figures/FigureS1e_overdose_UMAP.pdf",overdose,width=5,height=4)
+
+
 ```
-
-
 
 ```{r dot and coverage, warning=FALSE, message=FALSE, results='hide'}
 # Expression marker gene heatmap
-genes <- c("GAD1","GAD2","TAC1","ISL1","DRD1","DRD2","ADORA2A","GPR6","ADARB2","PTHLH","PVALB","CCK", "NPY", "VIP", "SST","CALB2","CHAT","AQP4","SLC1A2","SLC4A4","VCAN","PDGFRA","PCDH15","MBP","MOBP","PLP1","CSF1R","APBB1IP","P2RY12","CD96","CD3D","IL2RG","FLT1","CLDN5","KDR")
+genes <- c("GAD1","GAD2","TAC1","ISL1","DRD1","DRD2","ADORA2A","GPR6","ADARB2","PTHLH","PVALB","CCK", "VIP", "CALB2","CHAT","AQP4","SLC1A2","SLC4A4","VCAN","PDGFRA","PCDH15","MBP","MOBP","PLP1","CSF1R","APBB1IP","P2RY12","CD96","CD3D","IL2RG","FLT1","CLDN5","KDR")
 
 
 dp <- DotPlot(object = seurat2, features = genes,assay ="RNA", dot.scale = 4.5) + 
@@ -224,37 +228,26 @@ dp <- DotPlot(object = seurat2, features = genes,assay ="RNA", dot.scale = 4.5) 
   theme(text=element_text(size = 8))+
   theme(aspect.ratio =0.8) + xlab("")+ylab("")
 
-ggsave("/path/to/figures/Figure1e_DotPlot_Expression.pdf",plot = dp,height=6,width=8.5)
+ggsave("/path/to/figures/Figure1f_DotPlot_Expression.pdf",plot = dp,height=6,width=8.5)
 
 
-genes_ATAC <- c("DRD1","DRD2","ADARB2","PTHLH","VIP", "SST","CALB2","CHAT","AQP4","PDGFRA","MOBP","P2RY12","CD96","CLDN5")
+genes_ATAC <- c("DRD1","DRD2","ADARB2","PTHLH","VIP", "CALB2","CHAT","AQP4","PDGFRA","MOBP","P2RY12","CD96","CLDN5")
 
-DefaultAssay(seurat) <- "ATAC"
+DefaultAssay(seurat2) <- "ATAC"
 
 # save plot once for gene and once fo peaks to manually create the a nice figure
 for(i in genes_ATAC){
-p <- CoveragePlot(seurat,
+p <- CoveragePlot(seurat2,
                    region = i,
                    group.by = "celltypes",
                    extend.upstream = 1000,
                    extend.downstream = 1000,
-                   annotation = T,tile=F,links = F,peaks=F)+ylab(NULL)+xlab(NULL)
-ggsave(plot = p,filename = paste0("/path/to/figures/Figure1e_ATAC_markers_",i,"for_gene.pdf"), width = 5, height=8)  
-}
-
-for(i in genes_ATAC){
-p <- CoveragePlot(seurat,
-                   region = i,
-                   group.by = "celltypes",
-                   extend.upstream = 1000,
-                   extend.downstream = 1000,
-                   annotation = T,tile=F,links = F,peaks=F)+ylab(NULL)+xlab(NULL)
-ggsave(plot = p,filename = paste0("/path/to/figures/Figure1/ATAC_markers/1b_ATAC_markers_",i,"for_peaks.pdf"), width = 4, height=8)  
+                   tile=F,links = F,peaks=F,annotation = F)+ylab(NULL)+xlab(NULL)
+ggsave(plot = p,filename = paste0("/path/to/figures/Figure1g_ATAC_markers_",i,"for_gene.pdf"), width = 5, height=8)  
 }
 
 # Create figure with percentage of cell types across samples
-
-samples <- c(rep("Ctrl-1" , 13) , rep("Ctrl-2" , 13) , rep("Ctrl-3" , 13) , rep("Ctrl-4" , 13),rep("Ctrl-5" , 13) , rep("Ctrl-6" , 13) , rep("Ctrl-7" , 13) , rep("Ctrl-8" , 13),rep("CocUD-1" , 13) , rep("CocUD-2" , 13) , rep("CocUD-3" , 13) , rep("CocUD-4" , 13), rep("CocUD-5" , 13),rep("CocUD-6" , 13))
+samples <- c(rep("Ctrl-1" , 12) , rep("Ctrl-2" , 12) , rep("Ctrl-3" , 12) , rep("Ctrl-4" , 12),rep("Ctrl-5" , 12) , rep("Ctrl-6" , 12) , rep("Ctrl-7" , 12) , rep("Ctrl-8" , 12),rep("CocUD-1" , 12) , rep("CocUD-2" , 12) , rep("CocUD-3" , 12) , rep("CocUD-4" , 12), rep("CocUD-5" , 12),rep("CocUD-6" , 12))
 
 celltypes <- rep(names(table(seurat2$celltypes)) , 14)
 prop <- table(seurat2$orig.ident,seurat2$celltypes)
@@ -263,19 +256,19 @@ value <- c(unname(prop[1,]),unname(prop[2,]),unname(prop[3,]),unname(prop[4,]),u
 
 cell_perc <- data.frame(samples,celltypes,value)
 cell_perc$celltypes <- factor(cell_perc$celltypes,
-                               levels=c("Astrocyte",
-                                 "Microglia",
-                                 "Oligodendrocyte",
-                                 "OPC",
-                                 "GABAergic - D1 MSN",
-                                 "GABAergic - D2 MSN",
-                                 "GABAergic - CCK NPY VIP SST",
-                                 "GABAergic - D1 MSN ADARB2",
-                                 "GABAergic - CALB2",
-                                 "GABAergic - PTHLH PVALB",
-                                 "Cholinergic - ChAT",
-                                 "Endothelial",
-                                 "Lymphocyte"))
+                               levels=c("GABAergic - D1 MSN",
+                                         "GABAergic - D1 MSN ADARB2",
+                                         "GABAergic - D2 MSN",
+                                         "GABAergic - PTHLH PVALB",
+                                         "GABAergic - CCK VIP",
+                                         "GABAergic - CALB2",
+                                         "Cholinergic - ChAT",
+                                         "Astrocyte",
+                                         "OPC",
+                                         "Oligodendrocyte",
+                                         "Microglia",
+                                         "Lymphocyte",
+                                         "Endothelial"))
                                  
                 
 cell_perc$samples <- factor(cell_perc$samples,
@@ -286,18 +279,40 @@ cell_perc$samples <- factor(cell_perc$samples,
 per <- ggplot(cell_perc, aes(fill=celltypes, y=value, x=samples)) + 
     geom_bar(position="fill", stat="identity")+scale_fill_manual(values=c("#F7AB64","#74BA59","#70305A","#E8326D", "#3A9BCC","#85CEE4","#006960","#003E65","#BFE1D7","#D1BCDC","#FCD8C1","#969997","#C7361B"))+ylab("celltype proportion")+xlab(NULL)+
   theme_minimal()+theme(axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1))
-ggsave(plot = per,filename = paste0("/path/to/figures/Figure1d_celltype_percentage.pdf"), width = 8, height=5)
+ggsave(plot = per,filename = paste0("/path/to/figures/Figure1e_celltype_percentage.pdf"), width = 8, height=5)
 
 #S5
-Idents(seurat) <- "celltypes"
-hm <- DoHeatmap(seurat,features = top_markers$gene,assay = "RNA",draw.lines = T,group.bar = T, angle=90,group.colors = c("#3A9BCC","#003E65","#85CEE4","#D1BCDC","#006960","#BFE1D7","#FCD8C1", "#F7AB64", "#E8326D","#70305A","#70305A", "#74BA59", "#C7361B", "#D0D0CF", "#969997"), size=6)
+Idents(seurat2) <- "celltypes"
+hm <- DoHeatmap(seurat2,features = top_markers$gene,assay = "RNA",draw.lines = T,group.bar = T, angle=90,group.colors = c("#3A9BCC","#003E65","#85CEE4","#D1BCDC","#006960","#BFE1D7","#FCD8C1", "#F7AB64", "#E8326D","#70305A","#70305A", "#74BA59", "#C7361B", "#D0D0CF", "#969997"), size=6)
 
 ggsave("/path/to/results/Heatmap_top20_marker_genes_integrated.pdf",plot = hm,width = 28,height=40, dpi=300)
 ```
 
+# Create heatmap with Top markers 
+```{r RNA find all markers,warning=FALSE, message=FALSE, results='hide'}
+#markers <- FindAllMarkers(seurat2,assay = "RNA",logfc.threshold = 0.05)
+#write.table(markers,file="/path/to/FindAllMarkers_output_res_035_doublet.txt",sep=";",row.names = T,quote=F)
 
+markers <- read.csv("/path/to/FindAllMarkers_output_res_035_doublet.txt", sep=";")
 
+# prepare marker gene dataframe
+top_markers <-data.frame(p_val=rep(0,times=260),avg_log2FC=rep(0,times=260),pct.1=rep(0,times=260),pct.2=rep(0,times=260),p_val_adj=rep(0,times=260),cluster=rep(unique(seurat2$celltypes),each=20),gene=rep(0,times=260))
+
+for(i in unique(seurat2$celltypes)){
+  markers_clust<- markers[markers$cluster == i,]
+  markers_clust_pos <- markers_clust[markers_clust$avg_log2FC > 0,][c(1:20),]
+  markers_clust_pos$cluster <-as.character(markers_clust_pos$cluster)
+  top_markers[top_markers$cluster == i,] <- markers_clust_pos
+}
+
+# Create a heatmap of Top 20 marker genes
+seurat2 <- ScaleData(seurat2,assay = "RNA")
+
+hm <- DoHeatmap(seurat2,features = top_markers$gene,assay = "RNA",draw.lines = T,group.bar = T)
+ggsave("/path/to/results/Heatmap_top20_marker_genes_integrated.pdf",plot = hm,width = 20,height=32)
+```
 # Save annotated object
 ```{r saveRDS, echo=TRUE,out.width="100%",warning=FALSE, message=FALSE, results='hide'}
 saveRDS(seurat2,"/path/to/data/4_cell_types_harmony.rds")
+
 ```

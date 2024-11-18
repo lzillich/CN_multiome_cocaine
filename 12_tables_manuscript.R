@@ -1,5 +1,5 @@
 # Tables and Figure for CN multiome
-# LZ 28.05.2024
+# LZ 28.10.2024
 
 
 library(readr)
@@ -7,18 +7,18 @@ library(readxl)
 library(data.table)
 
 
-setwd("/path/to")
+setwd("/path/to/")
 
 
 #### DE Supplementary Table S2
 
 #read results
-astro_DE <- read_csv("results/DE/FindMarkers/clusterAstrocyte.csv")
-micro_DE <- read_csv("results/DE/FindMarkers/clusterMicroglia.csv")
-oligo_DE <- read_csv("results/DE/FindMarkers/clusterOligodendrocyte.csv")
-OPC_DE <- read_csv("results/DE/FindMarkers/clusterOPC.csv")
-D1_DE <- read_csv("results/DE/FindMarkers/clusterGABAergic - D1 MSN.csv")
-D2_DE <- read_csv("results/DE/FindMarkers/clusterGABAergic - D2 MSN.csv")
+astro_DE <- read_csv("results/DE/FindMarkers/all/clusterAstrocyte.csv")
+micro_DE <- read_csv("results/DE/FindMarkers/all/clusterMicroglia.csv")
+oligo_DE <- read_csv("results/DE/FindMarkers/all/clusterOligodendrocyte.csv")
+OPC_DE <- read_csv("results/DE/FindMarkers/all/clusterOPC.csv")
+D1_DE <- read_csv("results/DE/FindMarkers/all/clusterGABAergic - D1 MSN.csv")
+D2_DE <- read_csv("results/DE/FindMarkers/all/clusterGABAergic - D2 MSN.csv")
 
 colnames(astro_DE) <- paste0(colnames(astro_DE),"_astro")
 colnames(micro_DE) <- paste0(colnames(micro_DE),"_micro")
@@ -96,12 +96,12 @@ colnames(OPC_motif) <- paste0(colnames(OPC_motif),"_OPC")
 colnames(D1_motif) <- paste0(colnames(D1_motif),"_D1")
 colnames(D2_motif) <- paste0(colnames(D2_motif),"_D2")
 
-astro_motif <- astro_motif[order(astro_motif$...1_astro),]
-micro_motif <- micro_motif[order(micro_motif$...1_micro),]
-oligo_motif <- oligo_motif[order(oligo_motif$...1_oligo),]
-OPC_motif <- OPC_motif[order(OPC_motif$...1_OPC),]
-D1_motif <- D1_motif[order(D1_motif$...1_D1),]
-D2_motif <- D2_motif[order(D2_motif$...1_D2),]
+astro_motif <- astro_motif[order(astro_motif$motif_astro),]
+micro_motif <- micro_motif[order(micro_motif$motif_micro),]
+oligo_motif <- oligo_motif[order(oligo_motif$motif_oligo),]
+OPC_motif <- OPC_motif[order(OPC_motif$motif_OPC),]
+D1_motif <- D1_motif[order(D1_motif$motif_D1),]
+D2_motif <- D2_motif[order(D2_motif$motif_D2),]
 
 #combine dataframes
 
